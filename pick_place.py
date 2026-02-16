@@ -75,16 +75,31 @@ class RidgebackFrankaExperimental(Articulation):
 
         super().__init__(robot_path)
 
-        if end_effector_link is None:
-            self.end_effector_link = RigidPrim(f"{robot_path}/panda_hand")
-        else:
-            self.end_effector_link = end_effector_link
-
         all_dof_names = self.dof_names
         num_dofs = self.num_dofs
         print(f"Articulation has {num_dofs} DOFs:")
         for i, name in enumerate(all_dof_names):
             print(f"  DOF {i}: {name}")
+
+        all_link_names = self.link_names
+        all_link_paths = self.link_paths[0]
+        print(f"Articulation has {len(all_link_names)} links:")
+        for i, (name, path) in enumerate(zip(all_link_names, all_link_paths)):
+            print(f"  Link {i}: {name} -> {path}")
+
+        panda_hand_path = None
+        for name, path in zip(all_link_names, all_link_paths):
+            if name == "panda_hand":
+                panda_hand_path = path
+                break
+        if panda_hand_path is None:
+            raise RuntimeError(f"Could not find 'panda_hand' link. Available links: {all_link_names}")
+        print(f"End effector USD path: {panda_hand_path}")
+
+        if end_effector_link is None:
+            self.end_effector_link = RigidPrim(panda_hand_path)
+        else:
+            self.end_effector_link = end_effector_link
 
         self._arm_dof_indices = []
         for arm_name in ARM_JOINT_NAMES:
@@ -113,16 +128,12 @@ class RidgebackFrankaExperimental(Articulation):
             self._default_positions = default_positions
 
         self.end_effector_link_index = self.get_link_indices("panda_hand").list()[0]
-
-        all_link_names = self.link_names
-        print(f"Articulation has {len(all_link_names)} links:")
-        for i, name in enumerate(all_link_names):
-            print(f"  Link {i}: {name}")
-        print(f"End effector (panda_hand) link index: {self.end_effector_link_index}")
+        print(f"End effector link index: {self.end_effector_link_index}")
 
         self.gripper_open_position = np.array([FINGER_OPEN_POSITIONS])
         self.gripper_closed_position = np.array([FINGER_CLOSED_POSITIONS])
         self._num_total_dofs = num_dofs
+        self._jacobian_detected = False
 
     def differential_inverse_kinematics(
         self,
@@ -193,8 +204,32 @@ class RidgebackFrankaExperimental(Articulation):
             position = position.reshape(1, -1)
 
         jacobian_matrices = self.get_jacobian_matrices().numpy()
-        jacobian_end_effector = jacobian_matrices[:, self.end_effector_link_index - 1, :, :]
-        jacobian_arm = jacobian_end_effector[:, :, self._arm_dof_indices]
+
+        if not self._jacobian_detected:
+            jac_shape = jacobian_matrices.shape
+            n_links = len(self.link_names)
+            n_dofs = self._num_total_dofs
+            print(f"Jacobian shape: {jac_shape}")
+            print(f"  num_links={n_links}, num_dofs={n_dofs}")
+            if jac_shape[1] == n_links - 1 and jac_shape[3] == n_dofs:
+                self._is_floating_base = False
+                self._jac_link_row = self.end_effector_link_index - 1
+                self._jac_arm_cols = self._arm_dof_indices
+                print(f"  Detected FIXED base: jac_link_row={self._jac_link_row}, jac_arm_cols={self._jac_arm_cols}")
+            elif jac_shape[1] == n_links and jac_shape[3] == n_dofs + 6:
+                self._is_floating_base = True
+                self._jac_link_row = self.end_effector_link_index
+                self._jac_arm_cols = [idx + 6 for idx in self._arm_dof_indices]
+                print(f"  Detected FLOATING base: jac_link_row={self._jac_link_row}, jac_arm_cols={self._jac_arm_cols}")
+            else:
+                print(f"  WARNING: Unexpected Jacobian shape. Trying fixed-base indexing.")
+                self._is_floating_base = False
+                self._jac_link_row = self.end_effector_link_index - 1
+                self._jac_arm_cols = self._arm_dof_indices
+            self._jacobian_detected = True
+
+        jacobian_end_effector = jacobian_matrices[:, self._jac_link_row, :, :]
+        jacobian_arm = jacobian_end_effector[:, :, self._jac_arm_cols]
 
         delta_dof_positions = self.differential_inverse_kinematics(
             jacobian_end_effector=jacobian_arm,
@@ -204,6 +239,9 @@ class RidgebackFrankaExperimental(Articulation):
             goal_orientation=orientation,
             method=ik_method,
         )
+
+        max_delta = 0.1
+        delta_dof_positions = np.clip(delta_dof_positions, -max_delta, max_delta)
 
         current_arm_positions = current_dof_positions[:, self._arm_dof_indices]
         dof_position_targets = current_arm_positions + delta_dof_positions
