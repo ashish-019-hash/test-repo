@@ -51,7 +51,7 @@ WAREHOUSE_PRIM_PATH = "/World/Warehouse"
 TARGET_OBJECT_PATH = "/World/TargetCube"
 PLACE_TARGET_PATH = "/World/PlaceTarget"
 
-ROBOT_INITIAL_POS = np.array([2.0, 2.0, 0.0])
+ROBOT_INITIAL_POS = np.array([2.0, 2.0, 0.27])
 OBJECT_POSITION = np.array([5.0, 2.0, 0.30])
 PLACE_POSITION = np.array([5.0, 3.0, 0.30])
 
@@ -74,7 +74,11 @@ GRIPPER_OPEN = np.array([0.04, 0.04])
 GRIPPER_CLOSE = np.array([0.0, 0.0])
 
 
+STABILIZE_STEPS = 120
+
+
 class RobotState:
+    STABILIZE = "stabilize"
     NAVIGATE = "navigate"
     ALIGN = "align"
     PICK = "pick"
@@ -217,7 +221,8 @@ class RidgebackFrankaPickPlace:
         self._world = World(stage_units_in_meters=1.0)
         self._stage = omni.usd.get_context().get_stage()
 
-        self._state = RobotState.NAVIGATE
+        self._state = RobotState.STABILIZE
+        self._stabilize_counter = 0
         self._nav_controller = NavigationController(
             linear_speed=0.5,
             angular_speed=1.2,
@@ -407,7 +412,9 @@ class RidgebackFrankaPickPlace:
         return np.clip(positions, -2.8973, 2.8973)
 
     def forward(self):
-        if self._state == RobotState.NAVIGATE:
+        if self._state == RobotState.STABILIZE:
+            self._step_stabilize()
+        elif self._state == RobotState.NAVIGATE:
             self._step_navigate()
         elif self._state == RobotState.ALIGN:
             self._step_align()
@@ -416,6 +423,16 @@ class RidgebackFrankaPickPlace:
             self._step_pick_place()
         elif self._state == RobotState.DONE:
             self._stop_base()
+
+    def _step_stabilize(self):
+        self._stabilize_counter += 1
+        self._stop_base()
+        self._apply_arm_target(FRANKA_HOME_POSITIONS)
+        self._apply_gripper_target(GRIPPER_OPEN)
+        if self._stabilize_counter >= STABILIZE_STEPS:
+            print("Robot stabilized - starting navigation")
+            self._state = RobotState.NAVIGATE
+            self._stabilize_counter = 0
 
     def _step_navigate(self):
         base_pos, base_yaw = self._get_robot_pose()
@@ -480,7 +497,8 @@ class RidgebackFrankaPickPlace:
         return self._state == RobotState.DONE
 
     def reset(self):
-        self._state = RobotState.NAVIGATE
+        self._state = RobotState.STABILIZE
+        self._stabilize_counter = 0
         self._pick_place_sm = PickPlaceStateMachine(
             pick_pos=OBJECT_POSITION,
             place_pos=PLACE_POSITION,
