@@ -13,15 +13,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
+from __future__ import annotations
+
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--device", type=str, choices=["cpu", "cuda"], default="cpu", help="Simulation device")
+parser.add_argument(
+    "--ik-method",
+    type=str,
+    choices=["singular-value-decomposition", "pseudoinverse", "transpose", "damped-least-squares"],
+    default="damped-least-squares",
+    help="Differential inverse kinematics method",
+)
+args, _ = parser.parse_known_args()
+
+from isaacsim import SimulationApp
+
+simulation_app = SimulationApp({"headless": False})
+
+from typing import List, Optional
 
 import isaacsim.core.experimental.utils.stage as stage_utils
 import numpy as np
+import omni.timeline
 import warp as wp
-from isaacsim.core.experimental.prims import Articulation, RigidPrim
+from isaacsim.core.experimental.materials import PreviewSurfaceMaterial
+from isaacsim.core.experimental.objects import Cube
+from isaacsim.core.experimental.prims import Articulation, GeomPrim, RigidPrim
 from isaacsim.core.experimental.utils.impl.transform import quaternion_conjugate, quaternion_multiplication
+from isaacsim.core.simulation_manager import SimulationManager
 from isaacsim.storage.native import get_assets_root_path
-
 
 RIDGEBACK_FRANKA_USD_PATH = "/Isaac/Robots/Clearpath/RidgebackFranka/ridgeback_franka.usd"
 
@@ -334,3 +356,267 @@ class RidgebackFrankaExperimental(Articulation):
 
         self.set_dof_positions(default_positions)
         self.set_dof_position_targets(default_positions)
+
+
+class RidgebackFrankaPickPlace:
+    """Pick-and-place controller for the Ridgeback Franka mobile manipulator.
+
+    Uses the Clearpath Ridgeback mobile base with a Franka Emika Panda arm
+    mounted on top. The mobile base remains stationary while the arm performs
+    the pick-and-place operation via differential inverse kinematics.
+
+    State machine phases:
+        0: Move to x,y position above cube
+        1: Approach down to cube
+        2: Close gripper to grasp
+        3: Lift cube upward
+        4: Move cube to target location
+        5: Open gripper to release
+        6: Move up and away
+    """
+
+    def __init__(self, events_dt: Optional[List[float]] = None):
+        """Initialize the RidgebackFrankaPickPlace controller.
+
+        Args:
+            events_dt: List of step counts for each phase. If None, uses default values.
+        """
+        self.cube = None
+        self.robot = None
+
+        self.events_dt = events_dt
+        if self.events_dt is None:
+            self.events_dt = [
+                80,
+                50,
+                25,
+                50,
+                100,
+                25,
+                25,
+            ]
+        self._event = 0
+        self._step = 0
+
+    def setup_scene(
+        self,
+        cube_initial_position: Optional[np.ndarray] = None,
+        cube_initial_orientation: Optional[np.ndarray] = None,
+        cube_size: Optional[np.ndarray] = None,
+        target_position: Optional[np.ndarray] = None,
+        offset: Optional[np.ndarray] = None,
+    ) -> None:
+        """Set up the scene with the Ridgeback Franka robot and a cube.
+
+        Positions are adjusted to account for the elevated arm mounting on the
+        Ridgeback platform.
+
+        Args:
+            cube_initial_position: Initial cube position [x, y, z].
+            cube_initial_orientation: Initial cube orientation as quaternion [w, x, y, z].
+            cube_size: Cube dimensions [w, h, d].
+            target_position: Target position for placing [x, y, z].
+            offset: Additional offset to apply to target position [x, y, z].
+        """
+        self.cube_initial_position = cube_initial_position
+        self.cube_initial_orientation = cube_initial_orientation
+        self.target_position = target_position
+        self.cube_size = cube_size
+        self.offset = offset
+
+        if self.cube_size is None:
+            self.cube_size = np.array([0.0515, 0.0515, 0.0515])
+        if self.cube_initial_position is None:
+            self.cube_initial_position = np.array([0.5, 0.0, RIDGEBACK_BASE_HEIGHT + 0.0258])
+        if self.cube_initial_orientation is None:
+            self.cube_initial_orientation = np.array([1, 0, 0, 0])
+        if self.target_position is None:
+            self.target_position = np.array([-0.3, -0.3, RIDGEBACK_BASE_HEIGHT + 0.12])
+        if self.offset is None:
+            self.offset = np.array([0.0, 0.0, 0.0])
+        self.target_position = self.target_position + self.offset
+
+        self.robot = RidgebackFrankaExperimental(robot_path="/World/robot", create_robot=True)
+        self.end_effector_link = self.robot.end_effector_link
+
+        stage_utils.add_reference_to_stage(
+            usd_path=get_assets_root_path() + "/Isaac/Environments/Grid/default_environment.usd",
+            path="/World/ground",
+        )
+
+        visual_material = PreviewSurfaceMaterial("/Visual_materials/blue")
+        visual_material.set_input_values("diffuseColor", [0.0, 0.0, 1.0])
+
+        cube_shape = Cube(
+            paths="/World/Cube",
+            positions=self.cube_initial_position,
+            orientations=self.cube_initial_orientation,
+            sizes=[1.0],
+            scales=self.cube_size,
+            reset_xform_op_properties=True,
+        )
+
+        GeomPrim(paths=cube_shape.paths, apply_collision_apis=True)
+        self.cube = RigidPrim(paths=cube_shape.paths)
+        cube_shape.apply_visual_materials(visual_material)
+
+    def forward(self, ik_method: str = "damped-least-squares") -> bool:
+        """Execute one step of the pick-and-place operation.
+
+        Args:
+            ik_method: The inverse kinematics method to use.
+
+        Returns:
+            True if a step was executed, False if the sequence is complete.
+        """
+        if self.is_done():
+            return False
+
+        goal_orientation = self.robot.get_downward_orientation()
+
+        if self._event == 0:
+            if self._step == 0:
+                print("Phase 0: Moving to x,y position above cube...")
+            cube_pos = self.cube.get_world_poses()[0].numpy()
+            goal_position = np.array([cube_pos[0, 0], cube_pos[0, 1], cube_pos[0, 2] + 0.2])
+            self.robot.set_end_effector_pose(position=goal_position, orientation=goal_orientation, ik_method=ik_method)
+            self._step += 1
+            if self._step >= self.events_dt[0]:
+                self._event += 1
+                self._step = 0
+
+        elif self._event == 1:
+            if self._step == 0:
+                print("Phase 1: Approaching cube...")
+            cube_pos = self.cube.get_world_poses()[0].numpy()
+            goal_position = cube_pos + np.array([0.0, 0.0, 0.1])
+            self.robot.set_end_effector_pose(position=goal_position, orientation=goal_orientation, ik_method=ik_method)
+            self._step += 1
+            if self._step >= self.events_dt[1]:
+                self._event += 1
+                self._step = 0
+
+        elif self._event == 2:
+            if self._step == 0:
+                print("Phase 2: Closing gripper...")
+            self.robot.close_gripper()
+            self._step += 1
+            if self._step >= self.events_dt[2]:
+                self._event += 1
+                self._step = 0
+
+        elif self._event == 3:
+            if self._step == 0:
+                print("Phase 3: Lifting cube...")
+            _, current_position, _ = self.robot.get_current_state()
+            goal_position = current_position + np.array([0.0, 0.0, 0.2])
+            self.robot.set_end_effector_pose(position=goal_position, orientation=goal_orientation, ik_method=ik_method)
+            self._step += 1
+            if self._step >= self.events_dt[3]:
+                self._event += 1
+                self._step = 0
+
+        elif self._event == 4:
+            if self._step == 0:
+                print("Phase 4: Moving cube to target...")
+            self.robot.set_end_effector_pose(
+                position=self.target_position, orientation=goal_orientation, ik_method=ik_method
+            )
+            self._step += 1
+            if self._step >= self.events_dt[4]:
+                self._event += 1
+                self._step = 0
+
+        elif self._event == 5:
+            if self._step == 0:
+                print("Phase 5: Opening gripper...")
+            self.robot.open_gripper()
+            self._step += 1
+            if self._step >= self.events_dt[5]:
+                self._event += 1
+                self._step = 0
+
+        elif self._event == 6:
+            if self._step == 0:
+                print("Phase 6: Moving up...")
+            cube_pos = self.cube.get_world_poses()[0].numpy()
+            goal_position = cube_pos + np.array([0.0, 0.0, 0.3])
+            self.robot.set_end_effector_pose(position=goal_position, orientation=goal_orientation, ik_method=ik_method)
+            self._step += 1
+            if self._step >= self.events_dt[6]:
+                self._event += 1
+                self._step = 0
+
+        return True
+
+    def is_done(self) -> bool:
+        """Check if the pick-and-place sequence is complete."""
+        return self._event >= len(self.events_dt)
+
+    def reset(self, cube_position: Optional[np.ndarray] = None, cube_orientation: Optional[np.ndarray] = None):
+        """Reset the entire pick-and-place system to initial state.
+
+        Args:
+            cube_position: Optional new position for the cube.
+            cube_orientation: Optional new orientation for the cube.
+        """
+        self.reset_robot()
+        self.reset_cube(position=cube_position, orientation=cube_orientation)
+
+    def reset_robot(self):
+        """Reset the robot to its default state."""
+        if self.robot is not None:
+            self.robot.reset_to_default_pose()
+            self._event = 0
+            self._step = 0
+
+    def reset_cube(self, position: Optional[np.ndarray] = None, orientation: Optional[np.ndarray] = None):
+        """Reset the cube to its initial position and orientation.
+
+        Args:
+            position: Optional new position for the cube.
+            orientation: Optional new orientation for the cube.
+        """
+        if self.cube is not None:
+            reset_position = position if position is not None else self.cube_initial_position
+            reset_orientation = orientation if orientation is not None else self.cube_initial_orientation
+            self.cube.set_world_poses(positions=reset_position, orientations=reset_orientation)
+
+
+def main():
+    print("Starting Ridgeback Franka Pick-and-Place Demo")
+    SimulationManager.set_physics_sim_device(args.device)
+    simulation_app.update()
+
+    pick_place = RidgebackFrankaPickPlace()
+    pick_place.setup_scene()
+
+    omni.timeline.get_timeline_interface().play()
+    simulation_app.update()
+
+    reset_needed = True
+    task_completed = False
+
+    print("Starting pick-and-place execution")
+    while simulation_app.is_running():
+        if SimulationManager.is_simulating() and not task_completed:
+            if reset_needed:
+                pick_place.reset()
+                reset_needed = False
+
+            pick_place.forward(args.ik_method)
+
+        if pick_place.is_done() and not task_completed:
+            print("Done picking and placing with Ridgeback Franka")
+            task_completed = True
+
+        simulation_app.update()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        simulation_app.close()
