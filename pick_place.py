@@ -47,6 +47,7 @@ from isaacsim.storage.native import get_assets_root_path
 
 ARM_JOINT_NAMES = [f"panda_joint{i}" for i in range(1, 8)]
 FINGER_JOINT_NAMES = ["panda_finger_joint1", "panda_finger_joint2"]
+BASE_JOINT_NAMES = ["dummy_base_prismatic_x_joint", "dummy_base_prismatic_y_joint", "dummy_base_revolute_z_joint"]
 ARM_DEFAULT_POSITIONS = [0.012, -0.568, 0.0, -2.811, 0.0, 3.037, 0.741]
 FINGER_OPEN_POSITIONS = [0.04, 0.04]
 FINGER_CLOSED_POSITIONS = [0.0, 0.0]
@@ -115,8 +116,16 @@ class RidgebackFrankaExperimental(Articulation):
                     self._finger_dof_indices.append(i)
                     break
 
+        self._base_dof_indices = []
+        for base_name in BASE_JOINT_NAMES:
+            for i, name in enumerate(all_dof_names):
+                if name == base_name:
+                    self._base_dof_indices.append(i)
+                    break
+
         print(f"Arm DOF indices: {self._arm_dof_indices}")
         print(f"Finger DOF indices: {self._finger_dof_indices}")
+        print(f"Base DOF indices: {self._base_dof_indices}")
 
         if create_robot:
             default_positions = [0.0] * num_dofs
@@ -129,6 +138,16 @@ class RidgebackFrankaExperimental(Articulation):
 
         self.end_effector_link_index = self.get_link_indices("panda_hand").list()[0]
         print(f"End effector link index: {self.end_effector_link_index}")
+
+        if self._base_dof_indices:
+            base_stiffnesses = np.array([[1e6] * len(self._base_dof_indices)])
+            base_dampings = np.array([[1e5] * len(self._base_dof_indices)])
+            self.set_dof_gains(
+                stiffnesses=base_stiffnesses,
+                dampings=base_dampings,
+                dof_indices=self._base_dof_indices,
+            )
+            print(f"Locked base joints with stiffness={1e6}, damping={1e5}")
 
         self.gripper_open_position = np.array([FINGER_OPEN_POSITIONS])
         self.gripper_closed_position = np.array([FINGER_CLOSED_POSITIONS])
