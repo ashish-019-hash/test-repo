@@ -85,9 +85,9 @@ class RidgebackFrankaMobile:
         self._settled_steps = 0
 
         # self.start_position = np.array([-start_distance, 0.0, 0.0])
-        self.start_position = np.array([2.0, 0.0, 0.0])
+        self.start_position = np.array([-start_distance, -2.0, 0.0])
         # self.table_position = np.array([0.0, 0.0, 0.0])
-        self.table_position = np.array([0.0, 0.0, 0.0])
+        self.table_position = np.array([0.0, -2.0, 0.0])
         self._current_position = self.start_position.copy()
         self._move_speed = 0.005
 
@@ -364,6 +364,47 @@ def main():
     franka_pick_place = FrankaPickPlace()
     franka_pick_place.setup_scene()
 
+    stage = omni.usd.get_context().get_stage()
+    cube_prim_paths = ["/World/Cube", "/World/CuboidTarget", "/World/target", "/World/cube"]
+    cube_y_offset = -2.0
+    for cube_path in cube_prim_paths:
+        cube_prim = stage.GetPrimAtPath(cube_path)
+        if cube_prim.IsValid():
+            xformable = UsdGeom.Xformable(cube_prim)
+            existing_ops = xformable.GetOrderedXformOps()
+            translate_op = None
+            for op in existing_ops:
+                if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                    translate_op = op
+                    break
+            if translate_op:
+                current = translate_op.Get()
+                translate_op.Set(Gf.Vec3d(current[0], cube_y_offset, current[2]))
+            else:
+                translate_op = xformable.AddTranslateOp()
+                translate_op.Set(Gf.Vec3d(0.0, cube_y_offset, 0.0))
+            print(f"[INFO] Repositioned cube at {cube_path} to Y={cube_y_offset}")
+            break
+    else:
+        for prim in stage.Traverse():
+            prim_path = str(prim.GetPath())
+            if "/World/" in prim_path and ("cube" in prim_path.lower() or "target" in prim_path.lower() or "object" in prim_path.lower()):
+                xformable = UsdGeom.Xformable(prim)
+                existing_ops = xformable.GetOrderedXformOps()
+                translate_op = None
+                for op in existing_ops:
+                    if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                        translate_op = op
+                        break
+                if translate_op:
+                    current = translate_op.Get()
+                    translate_op.Set(Gf.Vec3d(current[0], cube_y_offset, current[2]))
+                else:
+                    translate_op = xformable.AddTranslateOp()
+                    translate_op.Set(Gf.Vec3d(0.0, cube_y_offset, 0.0))
+                print(f"[INFO] Repositioned object at {prim_path} to Y={cube_y_offset}")
+                break
+
     assets_root_path = get_assets_root_path()
     if assets_root_path is None:
         carb.log_error("Could not find Isaac Sim assets folder")
@@ -376,8 +417,6 @@ def main():
     print("[INFO] Warehouse environment loaded successfully")
 
     simulation_app.update()
-
-    stage = omni.usd.get_context().get_stage()
 
     ridgeback_franka = RidgebackFrankaMobile(franka_pick_place, start_distance=args.start_distance)
     ridgeback_franka.setup_mobile_base(stage)
