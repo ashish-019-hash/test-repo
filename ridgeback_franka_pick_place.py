@@ -130,49 +130,51 @@ class RidgebackFrankaExperimental(Articulation):
 
     def _set_default_state(self) -> None:
         """Set the robot to its default state with the arm in a ready pose and gripper open."""
-        all_dof_names = self.get_dof_names()
-        num_dofs = self.get_dof_count()
-        default_positions = np.zeros(num_dofs)
+        num_dofs = self.get_dof_positions().numpy().shape[-1]
+        default_positions = [0.0] * num_dofs
 
-        for i, name in enumerate(all_dof_names):
-            for j, arm_name in enumerate(FRANKA_ARM_DOF_NAMES):
-                if arm_name in name:
-                    default_positions[i] = FRANKA_ARM_DEFAULT_POSITIONS[j]
-                    break
-            for j, gripper_name in enumerate(FRANKA_GRIPPER_DOF_NAMES):
-                if gripper_name in name:
-                    default_positions[i] = FRANKA_GRIPPER_OPEN_POSITIONS[j]
-                    break
+        arm_indices = self._get_arm_dof_indices()
+        gripper_indices = self._get_gripper_dof_indices()
 
-        self.set_default_state(dof_positions=default_positions.tolist())
+        for j, idx in enumerate(arm_indices):
+            default_positions[idx] = FRANKA_ARM_DEFAULT_POSITIONS[j]
+        for j, idx in enumerate(gripper_indices):
+            default_positions[idx] = FRANKA_GRIPPER_OPEN_POSITIONS[j]
+
+        self.set_default_state(dof_positions=default_positions)
+
+    def _get_arm_dof_indices(self) -> list:
+        """Get DOF indices for the 7 Franka arm joints using get_dof_indices."""
+        indices = []
+        for name in FRANKA_ARM_DOF_NAMES:
+            idx_tensor = self.get_dof_indices(name)
+            indices.append(idx_tensor.list()[0])
+        return indices
+
+    def _get_gripper_dof_indices(self) -> list:
+        """Get DOF indices for the 2 Franka gripper finger joints."""
+        indices = []
+        for name in FRANKA_GRIPPER_DOF_NAMES:
+            idx_tensor = self.get_dof_indices(name)
+            indices.append(idx_tensor.list()[0])
+        return indices
+
+    def _get_wheel_dof_indices(self) -> list:
+        """Get DOF indices for the 4 Ridgeback wheel joints."""
+        indices = []
+        for name in RIDGEBACK_WHEEL_DOF_NAMES:
+            try:
+                idx_tensor = self.get_dof_indices(name)
+                indices.append(idx_tensor.list()[0])
+            except Exception:
+                pass
+        return indices
 
     def _resolve_dof_indices(self) -> None:
-        """Resolve DOF indices for the arm, gripper, and wheel joints."""
-        all_dof_names = self.get_dof_names()
-
-        arm_indices = []
-        for arm_name in FRANKA_ARM_DOF_NAMES:
-            for i, name in enumerate(all_dof_names):
-                if arm_name in name:
-                    arm_indices.append(i)
-                    break
-        self._arm_dof_indices = arm_indices
-
-        gripper_indices = []
-        for gripper_name in FRANKA_GRIPPER_DOF_NAMES:
-            for i, name in enumerate(all_dof_names):
-                if gripper_name in name:
-                    gripper_indices.append(i)
-                    break
-        self._gripper_dof_indices = gripper_indices
-
-        wheel_indices = []
-        for wheel_name in RIDGEBACK_WHEEL_DOF_NAMES:
-            for i, name in enumerate(all_dof_names):
-                if wheel_name in name:
-                    wheel_indices.append(i)
-                    break
-        self._wheel_dof_indices = wheel_indices
+        """Resolve and cache DOF indices for the arm, gripper, and wheel joints."""
+        self._arm_dof_indices = self._get_arm_dof_indices()
+        self._gripper_dof_indices = self._get_gripper_dof_indices()
+        self._wheel_dof_indices = self._get_wheel_dof_indices()
 
     @property
     def arm_dof_indices(self):
@@ -340,19 +342,13 @@ class RidgebackFrankaExperimental(Articulation):
         Resets the arm joints to their default configuration and the gripper to open.
         Wheel joints are set to zero velocity.
         """
-        num_dofs = self.get_dof_count()
-        all_dof_names = self.get_dof_names()
+        num_dofs = self.get_dof_positions().numpy().shape[-1]
         default_positions = np.zeros((1, num_dofs))
 
-        for i, name in enumerate(all_dof_names):
-            for j, arm_name in enumerate(FRANKA_ARM_DOF_NAMES):
-                if arm_name in name:
-                    default_positions[0, i] = FRANKA_ARM_DEFAULT_POSITIONS[j]
-                    break
-            for j, gripper_name in enumerate(FRANKA_GRIPPER_DOF_NAMES):
-                if gripper_name in name:
-                    default_positions[0, i] = FRANKA_GRIPPER_OPEN_POSITIONS[j]
-                    break
+        for j, idx in enumerate(self.arm_dof_indices):
+            default_positions[0, idx] = FRANKA_ARM_DEFAULT_POSITIONS[j]
+        for j, idx in enumerate(self.gripper_dof_indices):
+            default_positions[0, idx] = FRANKA_GRIPPER_OPEN_POSITIONS[j]
 
         self.set_dof_positions(default_positions)
         self.set_dof_position_targets(default_positions)
