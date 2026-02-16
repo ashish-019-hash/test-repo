@@ -45,13 +45,13 @@ from isaacsim.core.experimental.utils.impl.transform import quaternion_conjugate
 from isaacsim.core.simulation_manager import SimulationManager
 from isaacsim.storage.native import get_assets_root_path
 
-NUM_WHEEL_JOINTS = 4
+NUM_BASE_JOINTS = 3
 NUM_ARM_JOINTS = 7
 NUM_FINGER_JOINTS = 2
-TOTAL_DOFS = NUM_WHEEL_JOINTS + NUM_ARM_JOINTS + NUM_FINGER_JOINTS
+TOTAL_DOFS = NUM_BASE_JOINTS + NUM_ARM_JOINTS + NUM_FINGER_JOINTS
 
-ARM_DOF_START = NUM_WHEEL_JOINTS
-ARM_DOF_END = NUM_WHEEL_JOINTS + NUM_ARM_JOINTS
+ARM_DOF_START = NUM_BASE_JOINTS
+ARM_DOF_END = NUM_BASE_JOINTS + NUM_ARM_JOINTS
 ARM_DOF_INDICES = list(range(ARM_DOF_START, ARM_DOF_END))
 FINGER_DOF_INDICES = list(range(ARM_DOF_END, ARM_DOF_END + NUM_FINGER_JOINTS))
 
@@ -64,9 +64,9 @@ class RidgebackFrankaExperimental(Articulation):
     This class inherits from Articulation and provides high-level control commands
     for the Ridgeback Franka robot (Clearpath Ridgeback mobile base with a Franka
     Emika Panda arm). It handles the different joint structure where:
-      - DOFs 0-3: Ridgeback wheel joints
-      - DOFs 4-10: Franka arm joints (panda_joint1 through panda_joint7)
-      - DOFs 11-12: Franka finger joints (panda_finger_joint1, panda_finger_joint2)
+      - DOFs 0-2: Ridgeback base joints (x, y, yaw)
+      - DOFs 3-9: Franka arm joints (panda_joint1 through panda_joint7)
+      - DOFs 10-11: Franka finger joints (panda_finger_joint1, panda_finger_joint2)
     """
 
     def __init__(
@@ -90,7 +90,7 @@ class RidgebackFrankaExperimental(Articulation):
 
         if create_robot:
             default_positions = (
-                [0.0] * NUM_WHEEL_JOINTS
+                [0.0] * NUM_BASE_JOINTS
                 + [0.012, -0.568, 0.0, -2.811, 0.0, 3.037, 0.741]
                 + [0.04, 0.04]
             )
@@ -202,7 +202,7 @@ class RidgebackFrankaExperimental(Articulation):
 
     def reset_to_default_pose(self) -> None:
         default_positions = np.array(
-            [[0.0, 0.0, 0.0, 0.0, 0.012, -0.568, 0.0, -2.811, 0.0, 3.037, 0.741, 0.04, 0.04]]
+            [[0.0, 0.0, 0.0, 0.012, -0.568, 0.0, -2.811, 0.0, 3.037, 0.741, 0.04, 0.04]]
         )
         self.set_dof_positions(default_positions)
         self.set_dof_position_targets(default_positions)
