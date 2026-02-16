@@ -153,6 +153,7 @@ class RidgebackFrankaExperimental(Articulation):
         self.gripper_closed_position = np.array([FINGER_CLOSED_POSITIONS])
         self._num_total_dofs = num_dofs
         self._jacobian_detected = False
+        self._debug_step = 0
 
     def differential_inverse_kinematics(
         self,
@@ -209,6 +210,81 @@ class RidgebackFrankaExperimental(Articulation):
 
         return current_dof_positions, current_end_effector_position, current_end_effector_orientation
 
+    def _print_joint_gains(self) -> None:
+        stiffnesses, dampings = self.get_dof_gains()
+        stiffnesses_np = stiffnesses.numpy()[0]
+        dampings_np = dampings.numpy()[0]
+        all_dof_names = self.dof_names
+        print("\nJoint drive gains:")
+        for i, name in enumerate(all_dof_names):
+            print(f"  DOF {i} ({name}): stiffness={stiffnesses_np[i]:.1f}, damping={dampings_np[i]:.1f}")
+        return stiffnesses_np, dampings_np
+
+    def _ensure_arm_gains(self) -> None:
+        stiffnesses_np, dampings_np = self._print_joint_gains()
+        arm_stiffness_values = [stiffnesses_np[i] for i in self._arm_dof_indices]
+        if any(s < 1.0 for s in arm_stiffness_values):
+            print("\nWARNING: Arm joint stiffnesses are too low! Setting appropriate gains.")
+            arm_stiffnesses = np.array([[400.0, 400.0, 400.0, 400.0, 400.0, 400.0, 400.0]])
+            arm_dampings = np.array([[80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0]])
+            self.set_dof_gains(
+                stiffnesses=arm_stiffnesses,
+                dampings=arm_dampings,
+                dof_indices=self._arm_dof_indices,
+            )
+            print("Set arm joint gains: stiffness=400, damping=80")
+            self._print_joint_gains()
+
+    def _find_jacobian_row(self, jacobian_matrices, current_ee_pos, current_ee_ori,
+                           target_pos, target_ori, ik_method) -> int:
+        n_rows = jacobian_matrices.shape[1]
+        pos_error = target_pos - current_ee_pos
+        pos_error_norm = np.linalg.norm(pos_error)
+        if pos_error_norm < 1e-6:
+            return self._jac_link_row
+        pos_error_dir = pos_error / pos_error_norm
+
+        print(f"\nSearching for correct Jacobian row...")
+        print(f"  Current EE pos: {current_ee_pos[0]}")
+        print(f"  Target pos:     {target_pos[0]}")
+        print(f"  Pos error:      {pos_error[0]} (norm={pos_error_norm:.4f})")
+
+        best_row = self._jac_link_row
+        best_score = -np.inf
+
+        for row in range(n_rows):
+            j_arm = jacobian_matrices[:, row, :, self._jac_arm_cols]
+            j_norm = np.linalg.norm(j_arm)
+            if j_norm < 0.01:
+                continue
+
+            try:
+                delta_q = self.differential_inverse_kinematics(
+                    j_arm, current_ee_pos, current_ee_ori,
+                    target_pos, target_ori, ik_method
+                )
+            except Exception:
+                continue
+
+            predicted_v = (j_arm[0] @ delta_q[0])[:3]
+            pv_norm = np.linalg.norm(predicted_v)
+            if pv_norm < 1e-8:
+                continue
+
+            alignment = np.dot(predicted_v / pv_norm, pos_error_dir[0])
+            link_name = self.link_names[row] if row < len(self.link_names) else "?"
+            print(f"  Row {row:2d} ({link_name:22s}): J_norm={j_norm:.3f}, align={alignment:+.4f}")
+
+            if alignment > best_score:
+                best_score = alignment
+                best_row = row
+
+        link_name = self.link_names[best_row] if best_row < len(self.link_names) else "?"
+        print(f"  => Best row: {best_row} ({link_name}), alignment={best_score:+.4f}")
+        orig_name = self.link_names[self._jac_link_row] if self._jac_link_row < len(self.link_names) else "?"
+        print(f"  => Original row: {self._jac_link_row} ({orig_name})")
+        return best_row
+
     def set_end_effector_pose(
         self,
         position: np.ndarray,
@@ -225,10 +301,12 @@ class RidgebackFrankaExperimental(Articulation):
         jacobian_matrices = self.get_jacobian_matrices().numpy()
 
         if not self._jacobian_detected:
+            self._ensure_arm_gains()
+
             jac_shape = jacobian_matrices.shape
             n_links = len(self.link_names)
             n_dofs = self._num_total_dofs
-            print(f"Jacobian shape: {jac_shape}")
+            print(f"\nJacobian shape: {jac_shape}")
             print(f"  num_links={n_links}, num_dofs={n_dofs}")
             if jac_shape[1] == n_links - 1 and jac_shape[3] == n_dofs:
                 self._is_floating_base = False
@@ -245,6 +323,15 @@ class RidgebackFrankaExperimental(Articulation):
                 self._is_floating_base = False
                 self._jac_link_row = self.end_effector_link_index - 1
                 self._jac_arm_cols = self._arm_dof_indices
+
+            verified_row = self._find_jacobian_row(
+                jacobian_matrices, current_end_effector_position,
+                current_end_effector_orientation, position, orientation, ik_method
+            )
+            if verified_row != self._jac_link_row:
+                print(f"  *** CORRECTING Jacobian row from {self._jac_link_row} to {verified_row} ***")
+                self._jac_link_row = verified_row
+
             self._jacobian_detected = True
 
         jacobian_end_effector = jacobian_matrices[:, self._jac_link_row, :, :]
@@ -261,6 +348,14 @@ class RidgebackFrankaExperimental(Articulation):
 
         max_delta = 0.1
         delta_dof_positions = np.clip(delta_dof_positions, -max_delta, max_delta)
+
+        if self._debug_step < 3:
+            print(f"\nIK step {self._debug_step}:")
+            print(f"  EE pos:    {current_end_effector_position[0]}")
+            print(f"  Target:    {position[0]}")
+            print(f"  Pos error: {(position - current_end_effector_position)[0]}")
+            print(f"  Delta q:   {delta_dof_positions[0]}")
+            self._debug_step += 1
 
         current_arm_positions = current_dof_positions[:, self._arm_dof_indices]
         dof_position_targets = current_arm_positions + delta_dof_positions
