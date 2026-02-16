@@ -43,7 +43,7 @@ from isaacsim.core.utils.stage import add_reference_to_stage
 from isaacsim.core.api.robots import Robot
 from isaacsim.core.utils.types import ArticulationAction
 from isaacsim.storage.native import get_assets_root_path
-from pxr import UsdGeom
+from pxr import Usd, UsdGeom, UsdPhysics
 
 
 ROBOT_PRIM_PATH = "/World/RidgebackFranka"
@@ -285,6 +285,8 @@ class RidgebackFrankaPickPlace:
         print(f"  Arm DOF indices: {self._arm_dof_indices}")
         print(f"  Gripper DOF indices: {self._gripper_dof_indices}")
 
+        self._configure_joint_drives()
+
         self._pick_place_sm = PickPlaceStateMachine(
             pick_pos=OBJECT_POSITION,
             place_pos=PLACE_POSITION,
@@ -292,7 +294,43 @@ class RidgebackFrankaPickPlace:
 
         self._set_arm_positions(FRANKA_HOME_POSITIONS)
         self._set_gripper(GRIPPER_OPEN)
+        self._robot.set_joint_velocities(np.zeros(self._robot.num_dof))
         print("Robot initialized.")
+
+    def _configure_joint_drives(self):
+        robot_prim = self._stage.GetPrimAtPath(ROBOT_PRIM_PATH)
+        if not robot_prim.IsValid():
+            print("  Warning: robot prim not found for drive configuration")
+            return
+        arm_set = set(FRANKA_ARM_DOF_NAMES)
+        gripper_set = set(FRANKA_GRIPPER_DOF_NAMES)
+        wheel_set = set(RIDGEBACK_WHEEL_DOF_NAMES)
+        configured = 0
+        for prim in Usd.PrimRange(robot_prim):
+            name = prim.GetName()
+            if name in arm_set:
+                configured += self._set_drive_params(prim, 400.0, 80.0)
+            elif name in gripper_set:
+                configured += self._set_drive_params(prim, 1000.0, 100.0)
+            elif name in wheel_set:
+                configured += self._set_drive_params(prim, 0.0, 10.0)
+        print(f"  Configured {configured} joint drives")
+
+    def _set_drive_params(self, prim, stiffness, damping):
+        count = 0
+        for drive_type in ["angular", "linear"]:
+            try:
+                drive_api = UsdPhysics.DriveAPI.Get(prim, drive_type)
+                stiff_attr = drive_api.GetStiffnessAttr()
+                damp_attr = drive_api.GetDampingAttr()
+                if stiff_attr and stiff_attr.IsValid():
+                    stiff_attr.Set(stiffness)
+                    if damp_attr and damp_attr.IsValid():
+                        damp_attr.Set(damping)
+                    count += 1
+            except Exception:
+                pass
+        return count
 
     def _discover_dof_indices(self):
         wheel_ids, arm_ids, gripper_ids = [], [], []
@@ -425,9 +463,9 @@ class RidgebackFrankaPickPlace:
 
     def _step_stabilize(self):
         self._stabilize_counter += 1
-        self._stop_base()
-        self._apply_arm_target(FRANKA_HOME_POSITIONS)
-        self._apply_gripper_target(GRIPPER_OPEN)
+        self._set_arm_positions(FRANKA_HOME_POSITIONS)
+        self._set_gripper(GRIPPER_OPEN)
+        self._robot.set_joint_velocities(np.zeros(self._robot.num_dof))
         if self._stabilize_counter >= STABILIZE_STEPS:
             print("Robot stabilized - starting navigation")
             self._state = RobotState.NAVIGATE
@@ -504,8 +542,10 @@ class RidgebackFrankaPickPlace:
         )
         self._world.reset()
         self._wheel_dof_indices, self._arm_dof_indices, self._gripper_dof_indices = self._discover_dof_indices()
+        self._configure_joint_drives()
         self._set_arm_positions(FRANKA_HOME_POSITIONS)
         self._set_gripper(GRIPPER_OPEN)
+        self._robot.set_joint_velocities(np.zeros(self._robot.num_dof))
 
     def step_world(self):
         self._world.step(render=True)
@@ -521,9 +561,6 @@ def main():
 
     controller = RidgebackFrankaPickPlace()
     controller.setup_scene()
-
-    omni.timeline.get_timeline_interface().play()
-    simulation_app.update()
 
     controller.initialize()
 
