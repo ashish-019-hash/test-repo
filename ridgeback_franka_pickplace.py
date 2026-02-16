@@ -235,7 +235,7 @@ class RidgebackFrankaPickPlace:
             
             # Set initial arm configuration (home position)
             if len(self._arm_dof_indices) >= 7:
-                home_joints = [0.0, 0.35, 0.0, -1.9, 0.0, 2.3, 0.785]
+                home_joints = [0.0, 0.8, 0.0, -1.4, 0.0, 3.74, 0.785]
                 self._set_arm_joints(home_joints)
             
             # Open gripper initially
@@ -338,7 +338,7 @@ class RidgebackFrankaPickPlace:
         """Fallback method without end effector tracking"""
         if self._state == "moving_to_pick":
             if len(self._arm_dof_indices) >= 7:
-                target_joints = [0.0, 0.75, 0.0, -1.6, 0.0, 2.5, 0.785]
+                target_joints = [0.0, 1.0, 0.0, -1.5, 0.0, 3.64, 0.785]
                 self._set_arm_joints(target_joints)
                 
             self._current_step += 1
@@ -359,7 +359,7 @@ class RidgebackFrankaPickPlace:
                 
         elif self._state == "lifting":
             if len(self._arm_dof_indices) >= 7:
-                target_joints = [0.0, 0.2, 0.0, -2.1, 0.0, 2.0, 0.785]
+                target_joints = [0.0, 0.9, 0.0, -1.5, 0.0, 3.74, 0.785]
                 self._set_arm_joints(target_joints)
                 
             self._current_step += 1
@@ -371,7 +371,7 @@ class RidgebackFrankaPickPlace:
                 
         elif self._state == "moving_to_place":
             if len(self._arm_dof_indices) >= 7:
-                target_joints = [0.785, 0.2, 0.0, -2.1, 0.0, 2.0, 0.785]
+                target_joints = [0.785, 0.9, 0.0, -1.5, 0.0, 3.74, 0.785]
                 self._set_arm_joints(target_joints)
                 
             self._current_step += 1
@@ -390,7 +390,7 @@ class RidgebackFrankaPickPlace:
                 print("Released object")
                 
     def _move_to_target(self, current_pos, target_pos, ik_method):
-        """Move end effector towards target using numerical Jacobian"""
+        """Move end effector towards target using numerical Jacobian with null-space orientation bias"""
         if not self._robot or not self._arm_dof_indices or len(self._arm_dof_indices) != 7:
             return
             
@@ -408,17 +408,34 @@ class RidgebackFrankaPickPlace:
         if jacobian is not None:
             # Compute joint velocities using specified IK method
             if ik_method == "pseudoinverse":
-                joint_velocities = np.linalg.pinv(jacobian) @ velocity_command
+                J_pinv = np.linalg.pinv(jacobian)
+                joint_velocities = J_pinv @ velocity_command
             elif ik_method == "transpose":
-                joint_velocities = jacobian.T @ velocity_command
+                J_pinv = jacobian.T
+                joint_velocities = J_pinv @ velocity_command
             elif ik_method == "damped-least-squares":
                 lambda_damping = 0.05
-                joint_velocities = jacobian.T @ np.linalg.inv(jacobian @ jacobian.T + lambda_damping**2 * np.eye(3)) @ velocity_command
+                J_pinv = jacobian.T @ np.linalg.inv(jacobian @ jacobian.T + lambda_damping**2 * np.eye(3))
+                joint_velocities = J_pinv @ velocity_command
             else:  # singular-value-decomposition
                 U, s, Vh = np.linalg.svd(jacobian)
                 s_inv = np.array([1.0/si if si > 0.001 else 0.0 for si in s])
                 J_pinv = Vh.T @ np.diag(s_inv) @ U.T
                 joint_velocities = J_pinv @ velocity_command
+            
+            # Null-space projection to bias gripper orientation downward
+            # For Franka Panda, gripper faces down when J2 + J4 + J6 ~ pi
+            desired_config = np.array([0.0, 1.0, 0.0, -1.5, 0.0, 3.64, 0.785])
+            current_arm = np.array([current_joint_positions[idx] for idx in self._arm_dof_indices[:7]])
+            config_error = desired_config - current_arm
+            
+            null_space_gain = 2.0
+            if ik_method != "transpose":
+                N = np.eye(7) - np.linalg.pinv(jacobian) @ jacobian
+            else:
+                N = np.eye(7) - jacobian.T @ np.linalg.pinv(jacobian.T)
+            null_space_velocity = N @ (config_error * null_space_gain)
+            joint_velocities = joint_velocities + null_space_velocity
             
             # Integrate velocities to get target positions
             dt = 1.0 / 60.0  # Assuming 60 Hz
