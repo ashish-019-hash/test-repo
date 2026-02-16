@@ -236,6 +236,11 @@ class RidgebackFrankaPickPlace:
         if not self._rmp_initialized:
             self._init_rmpflow()
 
+        if self._rmp_initialized and self._rmpflow is not None:
+            self._state = "moving_to_pick"
+        else:
+            self._state = "approaching"
+
         if len(self._arm_dof_indices) >= 7:
             home_joints = [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
             self._set_arm_joints(home_joints)
@@ -373,19 +378,33 @@ class RidgebackFrankaPickPlace:
             self._robot.apply_action(action)
 
     def _simple_forward(self):
-        if self._state == "moving_to_pick":
+        HOME = [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
+        APPROACH = [0.0, 0.6, 0.0, -1.2, 0.0, 3.74, 0.785]
+        PICK = [0.0, 1.0, 0.0, -1.5, 0.0, 3.64, 0.785]
+        LIFT = [0.0, 0.5, 0.0, -1.0, 0.0, 3.64, 0.785]
+        PLACE = [0.785, 0.8, 0.0, -1.3, 0.0, 3.64, 0.785]
+
+        if self._state == "approaching":
             if len(self._arm_dof_indices) >= 7:
-                pick_joints = self._interpolate_joints(
-                    [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785],
-                    [0.0, 0.15, 0.0, -1.13, 0.0, 1.28, 0.785],
-                    self._current_step, 150,
-                )
-                self._set_arm_joints(pick_joints)
+                joints = self._interpolate_joints(HOME, APPROACH, self._current_step, 120)
+                self._set_arm_joints(joints)
             self._current_step += 1
-            if self._current_step > 150:
+            if self._current_step > 120:
+                self._state = "moving_to_pick"
+                self._current_step = 0
+                ee_pos, _ = self.get_end_effector_pose()
+                print(f"Reached approach position (EE: {ee_pos})")
+
+        elif self._state == "moving_to_pick":
+            if len(self._arm_dof_indices) >= 7:
+                joints = self._interpolate_joints(APPROACH, PICK, self._current_step, 100)
+                self._set_arm_joints(joints)
+            self._current_step += 1
+            if self._current_step > 100:
                 self._state = "closing_gripper"
                 self._current_step = 0
-                print("Reached pick position")
+                ee_pos, _ = self.get_end_effector_pose()
+                print(f"Reached pick position (EE: {ee_pos})")
 
         elif self._state == "closing_gripper":
             self._close_gripper()
@@ -397,31 +416,25 @@ class RidgebackFrankaPickPlace:
 
         elif self._state == "lifting":
             if len(self._arm_dof_indices) >= 7:
-                lift_joints = self._interpolate_joints(
-                    [0.0, 0.15, 0.0, -1.13, 0.0, 1.28, 0.785],
-                    [0.0, -0.3, 0.0, -1.8, 0.0, 1.571, 0.785],
-                    self._current_step, 100,
-                )
-                self._set_arm_joints(lift_joints)
+                joints = self._interpolate_joints(PICK, LIFT, self._current_step, 100)
+                self._set_arm_joints(joints)
             self._current_step += 1
             if self._current_step > 100:
                 self._state = "moving_to_place"
                 self._current_step = 0
-                print("Lifted object")
+                ee_pos, _ = self.get_end_effector_pose()
+                print(f"Lifted object (EE: {ee_pos})")
 
         elif self._state == "moving_to_place":
             if len(self._arm_dof_indices) >= 7:
-                place_joints = self._interpolate_joints(
-                    [0.0, -0.3, 0.0, -1.8, 0.0, 1.571, 0.785],
-                    [0.785, 0.15, 0.0, -1.13, 0.0, 1.28, 0.785],
-                    self._current_step, 150,
-                )
-                self._set_arm_joints(place_joints)
+                joints = self._interpolate_joints(LIFT, PLACE, self._current_step, 150)
+                self._set_arm_joints(joints)
             self._current_step += 1
             if self._current_step > 150:
                 self._state = "opening_gripper"
                 self._current_step = 0
-                print("Reached place position")
+                ee_pos, _ = self.get_end_effector_pose()
+                print(f"Reached place position (EE: {ee_pos})")
 
         elif self._state == "opening_gripper":
             self._open_gripper()
