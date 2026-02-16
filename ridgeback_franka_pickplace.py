@@ -89,7 +89,12 @@ class RidgebackFrankaMobile:
         # self.table_position = np.array([0.0, 0.0, 0.0])
         self.table_position = np.array([0.0, -2.0, 0.0])
         self._current_position = self.start_position.copy()
-        self._move_speed = 0.005
+        self._move_speed = 0.002
+        self._max_move_speed = 0.002
+        self._min_move_speed = 0.0003
+        self._accel_distance = 0.3
+
+        self._base_height = 0.2
 
         self._franka_prim_path = None
         self._dc = None
@@ -116,7 +121,7 @@ class RidgebackFrankaMobile:
         scale_op.Set(Gf.Vec3f(1.0, 0.7, 0.4))
 
         translate_op = xform.AddTranslateOp()
-        translate_op.Set(Gf.Vec3d(self.start_position[0], self.start_position[1], 0.1))
+        translate_op.Set(Gf.Vec3d(self.start_position[0], self.start_position[1], self._base_height / 2.0))
 
         cube_prim.GetDisplayColorAttr().Set([Gf.Vec3f(0.3, 0.3, 0.3)])
 
@@ -181,21 +186,31 @@ class RidgebackFrankaMobile:
             xform = UsdGeom.Xformable(franka_prim)
             xform.ClearXformOpOrder()
             translate_op = xform.AddTranslateOp()
-            translate_op.Set(Gf.Vec3d(position[0], position[1], position[2]))
+            translate_op.Set(Gf.Vec3d(position[0], position[1], self._base_height))
 
     def _move_towards(self, target_pos):
-        """Move both the mobile base and Franka robot towards target position."""
+        """Move both the mobile base and Franka robot towards target position with smooth easing."""
         direction = target_pos - self._current_position
         direction[2] = 0
         distance = np.linalg.norm(direction[:2])
 
-        if distance < 0.02:
+        if distance < 0.005:
             self._current_position = target_pos.copy()
             self._set_positions(target_pos)
             return True
 
+        total_distance = np.linalg.norm((target_pos - self.start_position)[:2])
+        traveled = total_distance - distance
+
+        ease_in = min(1.0, traveled / self._accel_distance) if self._accel_distance > 0 else 1.0
+        ease_out = min(1.0, distance / self._accel_distance) if self._accel_distance > 0 else 1.0
+        ease_factor = min(ease_in, ease_out)
+        ease_factor = ease_factor * ease_factor * (3.0 - 2.0 * ease_factor)
+
+        speed = self._min_move_speed + (self._max_move_speed - self._min_move_speed) * ease_factor
+
         direction = direction / distance
-        step = direction * min(self._move_speed, distance)
+        step = direction * min(speed, distance)
         self._current_position = self._current_position + step
         self._current_position[2] = 0
 
@@ -212,14 +227,14 @@ class RidgebackFrankaMobile:
             ops = xform.GetOrderedXformOps()
             for op in ops:
                 if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
-                    op.Set(Gf.Vec3d(position[0], position[1], 0.1))
+                    op.Set(Gf.Vec3d(position[0], position[1], self._base_height / 2.0))
                     break
 
         moved = False
 
         if self._franka_robot is not None and not moved:
             try:
-                pos = np.array([position[0], position[1], 0.0])
+                pos = np.array([position[0], position[1], self._base_height])
                 orient = np.array([1.0, 0.0, 0.0, 0.0])
                 self._franka_robot.set_world_pose(position=pos, orientation=orient)
                 moved = True
@@ -228,7 +243,7 @@ class RidgebackFrankaMobile:
 
         if self._franka_xform is not None and not moved:
             try:
-                pos = np.array([position[0], position[1], 0.0])
+                pos = np.array([position[0], position[1], self._base_height])
                 orient = np.array([1.0, 0.0, 0.0, 0.0])
                 self._franka_xform.set_world_pose(position=pos, orientation=orient)
                 moved = True
@@ -240,7 +255,7 @@ class RidgebackFrankaMobile:
                 root_body = self._dc.get_articulation_root_body(self._articulation_handle)
                 if root_body != 0:
                     transform = _dynamic_control.Transform()
-                    transform.p = _dynamic_control.float3(position[0], position[1], 0.0)
+                    transform.p = _dynamic_control.float3(position[0], position[1], self._base_height)
                     transform.r = _dynamic_control.float4(0.0, 0.0, 0.0, 1.0)
                     self._dc.set_rigid_body_pose(root_body, transform)
                     moved = True
@@ -254,7 +269,7 @@ class RidgebackFrankaMobile:
                 ops = xform.GetOrderedXformOps()
                 for op in ops:
                     if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
-                        op.Set(Gf.Vec3d(position[0], position[1], 0.0))
+                        op.Set(Gf.Vec3d(position[0], position[1], self._base_height))
                         break
 
     def reset(self):
