@@ -45,17 +45,11 @@ from isaacsim.core.experimental.utils.impl.transform import quaternion_conjugate
 from isaacsim.core.simulation_manager import SimulationManager
 from isaacsim.storage.native import get_assets_root_path
 
-NUM_BASE_JOINTS = 3
-NUM_ARM_JOINTS = 7
-NUM_FINGER_JOINTS = 2
-TOTAL_DOFS = NUM_BASE_JOINTS + NUM_ARM_JOINTS + NUM_FINGER_JOINTS
-
-ARM_DOF_START = NUM_BASE_JOINTS
-ARM_DOF_END = NUM_BASE_JOINTS + NUM_ARM_JOINTS
-ARM_DOF_INDICES = list(range(ARM_DOF_START, ARM_DOF_END))
-FINGER_DOF_INDICES = list(range(ARM_DOF_END, ARM_DOF_END + NUM_FINGER_JOINTS))
-
-RIDGEBACK_PLATFORM_HEIGHT = 0.278
+ARM_JOINT_NAMES = [f"panda_joint{i}" for i in range(1, 8)]
+FINGER_JOINT_NAMES = ["panda_finger_joint1", "panda_finger_joint2"]
+ARM_DEFAULT_POSITIONS = [0.012, -0.568, 0.0, -2.811, 0.0, 3.037, 0.741]
+FINGER_OPEN_POSITIONS = [0.04, 0.04]
+FINGER_CLOSED_POSITIONS = [0.0, 0.0]
 
 
 class RidgebackFrankaExperimental(Articulation):
@@ -63,10 +57,8 @@ class RidgebackFrankaExperimental(Articulation):
 
     This class inherits from Articulation and provides high-level control commands
     for the Ridgeback Franka robot (Clearpath Ridgeback mobile base with a Franka
-    Emika Panda arm). It handles the different joint structure where:
-      - DOFs 0-2: Ridgeback base joints (x, y, yaw)
-      - DOFs 3-9: Franka arm joints (panda_joint1 through panda_joint7)
-      - DOFs 10-11: Franka finger joints (panda_finger_joint1, panda_finger_joint2)
+    Emika Panda arm). It dynamically discovers DOF indices from joint names so it
+    works regardless of the USD's internal joint ordering.
     """
 
     def __init__(
@@ -76,7 +68,7 @@ class RidgebackFrankaExperimental(Articulation):
         end_effector_link: Optional[RigidPrim] = None,
     ):
         if create_robot:
-            robot_prim = stage_utils.add_reference_to_stage(
+            stage_utils.add_reference_to_stage(
                 usd_path=get_assets_root_path() + "/Isaac/Robots/Clearpath/RidgebackFranka/ridgeback_franka.usd",
                 path=robot_path,
             )
@@ -88,18 +80,49 @@ class RidgebackFrankaExperimental(Articulation):
         else:
             self.end_effector_link = end_effector_link
 
+        all_dof_names = self.dof_names
+        num_dofs = self.num_dofs
+        print(f"Articulation has {num_dofs} DOFs:")
+        for i, name in enumerate(all_dof_names):
+            print(f"  DOF {i}: {name}")
+
+        self._arm_dof_indices = []
+        for arm_name in ARM_JOINT_NAMES:
+            for i, name in enumerate(all_dof_names):
+                if name == arm_name:
+                    self._arm_dof_indices.append(i)
+                    break
+
+        self._finger_dof_indices = []
+        for finger_name in FINGER_JOINT_NAMES:
+            for i, name in enumerate(all_dof_names):
+                if name == finger_name:
+                    self._finger_dof_indices.append(i)
+                    break
+
+        print(f"Arm DOF indices: {self._arm_dof_indices}")
+        print(f"Finger DOF indices: {self._finger_dof_indices}")
+
         if create_robot:
-            default_positions = (
-                [0.0] * NUM_BASE_JOINTS
-                + [0.012, -0.568, 0.0, -2.811, 0.0, 3.037, 0.741]
-                + [0.04, 0.04]
-            )
+            default_positions = [0.0] * num_dofs
+            for idx, pos in zip(self._arm_dof_indices, ARM_DEFAULT_POSITIONS):
+                default_positions[idx] = pos
+            for idx, pos in zip(self._finger_dof_indices, FINGER_OPEN_POSITIONS):
+                default_positions[idx] = pos
             self.set_default_state(dof_positions=default_positions)
+            self._default_positions = default_positions
 
         self.end_effector_link_index = self.get_link_indices("panda_hand").list()[0]
 
-        self.gripper_open_position = np.array([[0.04, 0.04]])
-        self.gripper_closed_position = np.array([[0.0, 0.0]])
+        all_link_names = self.link_names
+        print(f"Articulation has {len(all_link_names)} links:")
+        for i, name in enumerate(all_link_names):
+            print(f"  Link {i}: {name}")
+        print(f"End effector (panda_hand) link index: {self.end_effector_link_index}")
+
+        self.gripper_open_position = np.array([FINGER_OPEN_POSITIONS])
+        self.gripper_closed_position = np.array([FINGER_CLOSED_POSITIONS])
+        self._num_total_dofs = num_dofs
 
     def differential_inverse_kinematics(
         self,
@@ -170,12 +193,11 @@ class RidgebackFrankaExperimental(Articulation):
             position = position.reshape(1, -1)
 
         jacobian_matrices = self.get_jacobian_matrices().numpy()
-        jacobian_end_effector = jacobian_matrices[
-            :, self.end_effector_link_index - 1, :, ARM_DOF_START:ARM_DOF_END
-        ]
+        jacobian_end_effector = jacobian_matrices[:, self.end_effector_link_index - 1, :, :]
+        jacobian_arm = jacobian_end_effector[:, :, self._arm_dof_indices]
 
         delta_dof_positions = self.differential_inverse_kinematics(
-            jacobian_end_effector=jacobian_end_effector,
+            jacobian_end_effector=jacobian_arm,
             current_position=current_end_effector_position,
             current_orientation=current_end_effector_orientation,
             goal_position=position,
@@ -183,27 +205,26 @@ class RidgebackFrankaExperimental(Articulation):
             method=ik_method,
         )
 
-        dof_position_targets = current_dof_positions[:, ARM_DOF_START:ARM_DOF_END] + delta_dof_positions
-        self.set_dof_position_targets(dof_position_targets, dof_indices=ARM_DOF_INDICES)
+        current_arm_positions = current_dof_positions[:, self._arm_dof_indices]
+        dof_position_targets = current_arm_positions + delta_dof_positions
+        self.set_dof_position_targets(dof_position_targets, dof_indices=self._arm_dof_indices)
 
     def open_gripper(self) -> None:
-        self.set_dof_position_targets(self.gripper_open_position, dof_indices=FINGER_DOF_INDICES)
+        self.set_dof_position_targets(self.gripper_open_position, dof_indices=self._finger_dof_indices)
 
     def close_gripper(self) -> None:
-        self.set_dof_position_targets(self.gripper_closed_position, dof_indices=FINGER_DOF_INDICES)
+        self.set_dof_position_targets(self.gripper_closed_position, dof_indices=self._finger_dof_indices)
 
     def set_gripper_position(self, position: np.ndarray) -> None:
         if position.ndim == 1:
             position = position.reshape(1, -1)
-        self.set_dof_position_targets(position, dof_indices=FINGER_DOF_INDICES)
+        self.set_dof_position_targets(position, dof_indices=self._finger_dof_indices)
 
     def get_downward_orientation(self) -> np.ndarray:
         return np.array([[0.0, 1.0, 0.0, 0.0]])
 
     def reset_to_default_pose(self) -> None:
-        default_positions = np.array(
-            [[0.0, 0.0, 0.0, 0.012, -0.568, 0.0, -2.811, 0.0, 3.037, 0.741, 0.04, 0.04]]
-        )
+        default_positions = np.array([self._default_positions])
         self.set_dof_positions(default_positions)
         self.set_dof_position_targets(default_positions)
 
@@ -251,11 +272,11 @@ class RidgebackFrankaPickPlace:
         if self.cube_size is None:
             self.cube_size = np.array([0.0515, 0.0515, 0.0515])
         if self.cube_initial_position is None:
-            self.cube_initial_position = np.array([0.5, 0.0, RIDGEBACK_PLATFORM_HEIGHT + 0.0258])
+            self.cube_initial_position = np.array([0.5, 0.0, 0.0258])
         if self.cube_initial_orientation is None:
             self.cube_initial_orientation = np.array([1, 0, 0, 0])
         if self.target_position is None:
-            self.target_position = np.array([-0.3, -0.3, RIDGEBACK_PLATFORM_HEIGHT + 0.12])
+            self.target_position = np.array([-0.3, -0.3, 0.12])
         if self.offset is None:
             self.offset = np.array([0.0, 0.0, 0.0])
         self.target_position = self.target_position + self.offset
@@ -454,6 +475,8 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"Error: {e}")
     finally:
         simulation_app.close()
