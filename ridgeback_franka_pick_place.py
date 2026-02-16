@@ -40,8 +40,8 @@ from isaacsim.core.api import World
 from isaacsim.core.api.objects import DynamicCuboid, FixedCuboid
 from isaacsim.core.simulation_manager import SimulationManager
 from isaacsim.core.utils.stage import add_reference_to_stage
+from isaacsim.core.api.robots import Robot
 from isaacsim.core.utils.types import ArticulationAction
-from isaacsim.robot.wheeled_robots import WheeledRobot
 from isaacsim.storage.native import get_assets_root_path
 from pxr import UsdGeom
 
@@ -225,8 +225,9 @@ class RidgebackFrankaPickPlace:
         )
         self._mecanum = MecanumController()
         self._pick_place_sm = None
-        self._wheeled_robot = None
+        self._robot = None
 
+        self._wheel_dof_indices = []
         self._arm_dof_indices = []
         self._gripper_dof_indices = []
 
@@ -238,15 +239,14 @@ class RidgebackFrankaPickPlace:
 
         print("Setting up Ridgeback Franka robot...")
         robot_usd = self._assets_root_path + "/Isaac/Robots/Clearpath/RidgebackFranka/ridgeback_franka.usd"
-        self._wheeled_robot = WheeledRobot(
-            prim_path=ROBOT_PRIM_PATH,
-            name="ridgeback_franka",
-            wheel_dof_names=RIDGEBACK_WHEEL_DOF_NAMES,
-            create_robot=True,
-            usd_path=robot_usd,
-            position=ROBOT_INITIAL_POS,
+        add_reference_to_stage(usd_path=robot_usd, prim_path=ROBOT_PRIM_PATH)
+        self._robot = self._world.scene.add(
+            Robot(
+                prim_path=ROBOT_PRIM_PATH,
+                name="ridgeback_franka",
+                position=ROBOT_INITIAL_POS,
+            )
         )
-        self._world.scene.add(self._wheeled_robot)
         print(f"  Robot at: {ROBOT_INITIAL_POS}")
 
         print("Setting up target objects...")
@@ -275,20 +275,28 @@ class RidgebackFrankaPickPlace:
         print("Initializing simulation and robot...")
         self._world.reset()
 
+        for name in RIDGEBACK_WHEEL_DOF_NAMES:
+            try:
+                idx = self._robot.get_dof_index(name)
+                self._wheel_dof_indices.append(idx)
+            except Exception:
+                print(f"  Warning: wheel joint '{name}' not found")
+
         for name in FRANKA_ARM_DOF_NAMES:
             try:
-                idx = self._wheeled_robot.get_dof_index(name)
+                idx = self._robot.get_dof_index(name)
                 self._arm_dof_indices.append(idx)
             except Exception:
                 print(f"  Warning: arm joint '{name}' not found")
 
         for name in FRANKA_GRIPPER_DOF_NAMES:
             try:
-                idx = self._wheeled_robot.get_dof_index(name)
+                idx = self._robot.get_dof_index(name)
                 self._gripper_dof_indices.append(idx)
             except Exception:
                 print(f"  Warning: gripper joint '{name}' not found")
 
+        print(f"  Wheel DOF indices: {self._wheel_dof_indices}")
         print(f"  Arm DOF indices: {self._arm_dof_indices}")
         print(f"  Gripper DOF indices: {self._gripper_dof_indices}")
 
@@ -302,7 +310,7 @@ class RidgebackFrankaPickPlace:
         print("Robot initialized.")
 
     def _get_robot_pose(self):
-        pos, orient = self._wheeled_robot.get_world_pose()
+        pos, orient = self._robot.get_world_pose()
         w, x, y, z = orient[0], orient[1], orient[2], orient[3]
         yaw = np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
         return pos, yaw
@@ -321,54 +329,61 @@ class RidgebackFrankaPickPlace:
     def _set_arm_positions(self, positions):
         if not self._arm_dof_indices:
             return
-        current = self._wheeled_robot.get_joint_positions()
+        current = self._robot.get_joint_positions()
         if current is None:
             return
         new_positions = current.copy()
         for i, idx in enumerate(self._arm_dof_indices):
             if i < len(positions):
                 new_positions[idx] = positions[i]
-        self._wheeled_robot.set_joint_positions(new_positions)
+        self._robot.set_joint_positions(new_positions)
 
     def _set_gripper(self, positions):
         if not self._gripper_dof_indices:
             return
-        current = self._wheeled_robot.get_joint_positions()
+        current = self._robot.get_joint_positions()
         if current is None:
             return
         new_positions = current.copy()
         for i, idx in enumerate(self._gripper_dof_indices):
             if i < len(positions):
                 new_positions[idx] = positions[i]
-        self._wheeled_robot.set_joint_positions(new_positions)
+        self._robot.set_joint_positions(new_positions)
 
     def _apply_arm_target(self, target_positions):
         if not self._arm_dof_indices:
             return
-        current = self._wheeled_robot.get_joint_positions()
+        current = self._robot.get_joint_positions()
         if current is None:
             return
         joint_positions = current.copy()
         for i, idx in enumerate(self._arm_dof_indices):
             if i < len(target_positions):
                 joint_positions[idx] = target_positions[i]
-        self._wheeled_robot.apply_action(ArticulationAction(joint_positions=joint_positions))
+        self._robot.apply_action(ArticulationAction(joint_positions=joint_positions))
 
     def _apply_gripper_target(self, target_positions):
         if not self._gripper_dof_indices:
             return
-        current = self._wheeled_robot.get_joint_positions()
+        current = self._robot.get_joint_positions()
         if current is None:
             return
         joint_positions = current.copy()
         for i, idx in enumerate(self._gripper_dof_indices):
             if i < len(target_positions):
                 joint_positions[idx] = target_positions[i]
-        self._wheeled_robot.apply_action(ArticulationAction(joint_positions=joint_positions))
+        self._robot.apply_action(ArticulationAction(joint_positions=joint_positions))
 
     def _apply_base_velocity(self, vx, vy, omega):
+        if not self._wheel_dof_indices:
+            return
         wheel_vels = self._mecanum.compute_wheel_velocities(vx, vy, omega)
-        self._wheeled_robot.apply_wheel_actions(ArticulationAction(joint_velocities=wheel_vels))
+        n_dofs = self._robot.num_dof
+        joint_velocities = np.zeros(n_dofs)
+        for i, idx in enumerate(self._wheel_dof_indices):
+            if i < len(wheel_vels):
+                joint_velocities[idx] = wheel_vels[i]
+        self._robot.apply_action(ArticulationAction(joint_velocities=joint_velocities))
 
     def _stop_base(self):
         self._apply_base_velocity(0.0, 0.0, 0.0)
@@ -471,6 +486,24 @@ class RidgebackFrankaPickPlace:
             place_pos=PLACE_POSITION,
         )
         self._world.reset()
+        self._wheel_dof_indices = []
+        self._arm_dof_indices = []
+        self._gripper_dof_indices = []
+        for name in RIDGEBACK_WHEEL_DOF_NAMES:
+            try:
+                self._wheel_dof_indices.append(self._robot.get_dof_index(name))
+            except Exception:
+                pass
+        for name in FRANKA_ARM_DOF_NAMES:
+            try:
+                self._arm_dof_indices.append(self._robot.get_dof_index(name))
+            except Exception:
+                pass
+        for name in FRANKA_GRIPPER_DOF_NAMES:
+            try:
+                self._gripper_dof_indices.append(self._robot.get_dof_index(name))
+            except Exception:
+                pass
         self._set_arm_positions(FRANKA_HOME_POSITIONS)
         self._set_gripper(GRIPPER_OPEN)
 
