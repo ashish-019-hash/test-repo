@@ -668,6 +668,8 @@ class SpotGR00TRunner(object):
         self._ridgeback_franka = None
         self._ridgeback_initialized = False
 
+        self._add_franka_and_objects(assets_root_path, cube_offset)
+
         self._camera_prim = camera_prim
         self._setup_camera()
 
@@ -698,14 +700,13 @@ class SpotGR00TRunner(object):
         self.needs_reset = False
         self.first_step = True
 
-    def setup_ridgeback_franka(self):
-        """Set up the Ridgeback Franka mobile manipulator.
+    def _add_franka_and_objects(self, assets_root_path, cube_offset):
+        """Add Franka robot, cube, and table as USD prims.
 
-        Loads the Franka robot USD and creates a pick-up cube directly as
-        USD prims. This avoids FrankaPickPlace.setup_scene() which corrupts
-        the World singleton's _scene attribute in Isaac Sim 5.1.0.
+        Must be called BEFORE World.reset() so the physics engine registers
+        these prims. Uses direct USD prim creation instead of
+        FrankaPickPlace.setup_scene() which corrupts the World singleton.
         """
-        assets_root_path = get_assets_root_path()
         stage = omni.usd.get_context().get_stage()
 
         franka_prim = define_prim("/World/Franka", "Xform")
@@ -716,7 +717,7 @@ class SpotGR00TRunner(object):
         cube_path = "/World/PickCube"
         cube_prim = stage.DefinePrim(cube_path, "Cube")
         UsdGeom.Xformable(cube_prim).AddTranslateOp().Set(
-            Gf.Vec3d(self._cube_offset, 0.0, 0.15)
+            Gf.Vec3d(cube_offset, 0.0, 0.15)
         )
         UsdGeom.Xformable(cube_prim).AddScaleOp().Set(Gf.Vec3d(0.025, 0.025, 0.025))
         UsdGeom.Gprim(cube_prim).CreateDisplayColorAttr([(1.0, 0.2, 0.2)])
@@ -724,24 +725,29 @@ class SpotGR00TRunner(object):
         UsdPhysics.RigidBodyAPI.Apply(cube_prim)
         mass_api = UsdPhysics.MassAPI.Apply(cube_prim)
         mass_api.CreateMassAttr(0.5)
-        print(f"[Ridgeback] Created pick-up cube at x={self._cube_offset}")
+        print(f"[Ridgeback] Created pick-up cube at x={cube_offset}")
 
         table_path = "/World/Table"
         table_prim = stage.DefinePrim(table_path, "Cube")
         UsdGeom.Xformable(table_prim).AddTranslateOp().Set(
-            Gf.Vec3d(self._cube_offset, 0.0, 0.05)
+            Gf.Vec3d(cube_offset, 0.0, 0.05)
         )
         UsdGeom.Xformable(table_prim).AddScaleOp().Set(Gf.Vec3d(0.3, 0.3, 0.005))
         UsdGeom.Gprim(table_prim).CreateDisplayColorAttr([(0.5, 0.35, 0.2)])
         UsdPhysics.CollisionAPI.Apply(table_prim)
         print("[Ridgeback] Created table surface")
 
-        simulation_app.update()
+    def setup_ridgeback_franka(self):
+        """Set up the RidgebackFrankaMobile controller.
 
+        Must be called AFTER World.reset() so that the physics engine has
+        initialized the Franka articulation and other prims.
+        """
+        stage = omni.usd.get_context().get_stage()
         self._ridgeback_franka = RidgebackFrankaMobile(cube_offset=self._cube_offset)
         self._ridgeback_franka.setup_mobile_base(stage)
         self._ridgeback_initialized = True
-        print("[Spot] Ridgeback Franka mobile manipulator added to scene.")
+        print("[Spot] Ridgeback Franka mobile manipulator ready.")
 
     def _setup_camera(self):
         print(f"[Camera] Setting up camera at: {self._camera_prim}")
