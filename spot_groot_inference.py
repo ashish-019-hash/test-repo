@@ -12,10 +12,12 @@ from pathlib import Path
 from enum import Enum
 import omni.appwindow
 import omni.usd
+import omni.timeline
 
 from isaacsim.core.api import World
 from isaacsim.core.utils.prims import define_prim
 from isaacsim.storage.native import get_assets_root_path
+from isaacsim.robot.manipulators.examples.franka import FrankaPickPlace
 from omni.isaac.dynamic_control import _dynamic_control
 from omni.isaac.sensor import Camera
 from pxr import UsdGeom, Gf, UsdPhysics, PhysxSchema, Usd
@@ -124,11 +126,12 @@ class MobileState(Enum):
 class RidgebackFrankaMobile:
     """Ridgeback Franka mobile manipulator with movement before pick and place.
 
-    Drives the Ridgeback mobile base (with Franka mounted) to the cube,
-    picks it up, returns to start, and places it.
+    Wraps FrankaPickPlace with a visual Ridgeback mobile base. The base drives
+    to the cube, the Franka arm picks it, then the base returns to start.
     """
 
-    def __init__(self, cube_offset: float = 3.0):
+    def __init__(self, franka_pick_place: FrankaPickPlace, cube_offset: float = 3.0):
+        self.franka_pick_place = franka_pick_place
         self.cube_offset = cube_offset
 
         self._mobile_base_prim_path = "/World/RidgebackBase"
@@ -518,12 +521,12 @@ class RidgebackFrankaMobile:
                 self._articulation_handle = None
 
         self._set_positions(self.start_position)
+        self.franka_pick_place.reset()
         self._apply_scene_offset(omni.usd.get_context().get_stage())
 
         print(f"[INFO] Ridgeback Franka reset to start position {self.start_position}")
 
-    def forward(self):
-        """Execute one step of the mobile manipulation."""
+    def forward(self, ik_method: str):
         self._step_count += 1
         self._state_step_count += 1
         stage = omni.usd.get_context().get_stage()
@@ -550,29 +553,24 @@ class RidgebackFrankaMobile:
                 self._state = MobileState.PICK_CUBE
                 self._state_step_count = 0
                 self._pick_steps = 0
+                self.franka_pick_place.reset()
                 self._apply_scene_offset(stage)
 
         elif self._state == MobileState.PICK_CUBE:
+            self.franka_pick_place.forward(ik_method)
             self._pick_steps += 1
 
             cube_lifted = self._is_cube_lifted(stage)
+            pick_done = self.franka_pick_place.is_done()
 
-            if cube_lifted or self._pick_steps > 100:
+            if cube_lifted or pick_done or self._pick_steps > 800:
                 gripper_pos = self._get_gripper_world_position(stage)
                 cube_pos = self._get_cube_position(stage)
                 if gripper_pos is not None and cube_pos is not None:
                     self._gripper_to_cube_offset = cube_pos - gripper_pos
                 elif gripper_pos is not None:
                     self._gripper_to_cube_offset = np.array([0.0, 0.0, -0.04])
-                else:
-                    cube_pos = self._get_cube_position(stage)
-                    if cube_pos is not None:
-                        self._gripper_to_cube_offset = cube_pos - np.array([
-                            self._current_position[0],
-                            self._current_position[1],
-                            0.5
-                        ])
-                reason = "lifted" if cube_lifted else "settled"
+                reason = "lifted" if cube_lifted else ("full-cycle" if pick_done else "timeout")
                 print(f"[STATE] PICK_CUBE -> RETURN_TO_START ({reason} after {self._pick_steps} steps)")
                 self._state = MobileState.RETURN_TO_START
                 self._state_step_count = 0
@@ -622,6 +620,7 @@ class RidgebackFrankaMobile:
 class SpotGR00TRunner(object):
     def __init__(
         self,
+        franka_pick_place,
         physics_dt,
         render_dt,
         task_description,
@@ -631,6 +630,7 @@ class SpotGR00TRunner(object):
         query_interval=QUERY_INTERVAL_SECONDS,
         camera_prim=DEFAULT_CAMERA_PRIM,
         cube_offset=3.0,
+        ik_method="damped-least-squares",
     ):
         self._world = World(
             stage_units_in_meters=1.0,
@@ -665,10 +665,14 @@ class SpotGR00TRunner(object):
         )
 
         self._cube_offset = cube_offset
-        self._ridgeback_franka = None
-        self._ridgeback_initialized = False
+        self._ik_method = ik_method
 
-        self._add_franka_and_objects(assets_root_path, cube_offset)
+        stage = omni.usd.get_context().get_stage()
+        self._ridgeback_franka = RidgebackFrankaMobile(
+            franka_pick_place, cube_offset=cube_offset
+        )
+        self._ridgeback_franka.setup_mobile_base(stage)
+        print("[Spot] Ridgeback Franka mobile manipulator added to scene.")
 
         self._camera_prim = camera_prim
         self._setup_camera()
@@ -685,6 +689,8 @@ class SpotGR00TRunner(object):
             )
         print("[Spot] Connected to GR00T policy server successfully.")
 
+        self._timeline = omni.timeline.get_timeline_interface()
+
         self._physics_step_count = 0
         self._query_count = 0
         self._object_detected = False
@@ -700,55 +706,6 @@ class SpotGR00TRunner(object):
         self.needs_reset = False
         self.first_step = True
 
-    def _add_franka_and_objects(self, assets_root_path, cube_offset):
-        """Add Franka robot, cube, and table as USD prims.
-
-        Must be called BEFORE World.reset() so the physics engine registers
-        these prims. Uses direct USD prim creation instead of
-        FrankaPickPlace.setup_scene() which corrupts the World singleton.
-        """
-        stage = omni.usd.get_context().get_stage()
-
-        franka_prim = define_prim("/World/Franka", "Xform")
-        franka_usd = assets_root_path + "/Isaac/Robots/Franka/franka_alt_fingers.usd"
-        franka_prim.GetReferences().AddReference(franka_usd)
-        print(f"[Ridgeback] Loaded Franka USD from: {franka_usd}")
-
-        cube_path = "/World/PickCube"
-        cube_prim = stage.DefinePrim(cube_path, "Cube")
-        UsdGeom.Xformable(cube_prim).AddTranslateOp().Set(
-            Gf.Vec3d(cube_offset, 0.0, 0.15)
-        )
-        UsdGeom.Xformable(cube_prim).AddScaleOp().Set(Gf.Vec3d(0.025, 0.025, 0.025))
-        UsdGeom.Gprim(cube_prim).CreateDisplayColorAttr([(1.0, 0.2, 0.2)])
-        UsdPhysics.CollisionAPI.Apply(cube_prim)
-        UsdPhysics.RigidBodyAPI.Apply(cube_prim)
-        mass_api = UsdPhysics.MassAPI.Apply(cube_prim)
-        mass_api.CreateMassAttr(0.5)
-        print(f"[Ridgeback] Created pick-up cube at x={cube_offset}")
-
-        table_path = "/World/Table"
-        table_prim = stage.DefinePrim(table_path, "Cube")
-        UsdGeom.Xformable(table_prim).AddTranslateOp().Set(
-            Gf.Vec3d(cube_offset, 0.0, 0.05)
-        )
-        UsdGeom.Xformable(table_prim).AddScaleOp().Set(Gf.Vec3d(0.3, 0.3, 0.005))
-        UsdGeom.Gprim(table_prim).CreateDisplayColorAttr([(0.5, 0.35, 0.2)])
-        UsdPhysics.CollisionAPI.Apply(table_prim)
-        print("[Ridgeback] Created table surface")
-
-    def setup_ridgeback_franka(self):
-        """Set up the RidgebackFrankaMobile controller.
-
-        Must be called AFTER World.reset() so that the physics engine has
-        initialized the Franka articulation and other prims.
-        """
-        stage = omni.usd.get_context().get_stage()
-        self._ridgeback_franka = RidgebackFrankaMobile(cube_offset=self._cube_offset)
-        self._ridgeback_franka.setup_mobile_base(stage)
-        self._ridgeback_initialized = True
-        print("[Spot] Ridgeback Franka mobile manipulator ready.")
-
     def _setup_camera(self):
         print(f"[Camera] Setting up camera at: {self._camera_prim}")
         self._camera = Camera(
@@ -756,7 +713,7 @@ class SpotGR00TRunner(object):
             resolution=(CAMERA_WIDTH, CAMERA_HEIGHT),
             frequency=30,
         )
-        cam_prim = self._world.stage.GetPrimAtPath(self._camera_prim)
+        cam_prim = omni.usd.get_context().get_stage().GetPrimAtPath(self._camera_prim)
         xformable = UsdGeom.Xformable(cam_prim)
         xformable.AddRotateXYZOp(opSuffix="tilt").Set((-25.0, 0.0, 0.0))
 
@@ -851,10 +808,12 @@ class SpotGR00TRunner(object):
             return
 
         if self.needs_reset:
-            self._world.reset(True)
+            self._timeline.stop()
+            simulation_app.update()
+            self._timeline.play()
+            simulation_app.update()
             self._policy.reset()
-            if self._ridgeback_initialized:
-                self._ridgeback_franka.reset()
+            self._ridgeback_franka.reset()
             self._object_detected = False
             self._pick_place_active = False
             self._pick_place_done = False
@@ -881,13 +840,13 @@ class SpotGR00TRunner(object):
                 self._last_query_time = now
                 self._query_groot()
 
-        if self._ridgeback_initialized and self._object_detected and not self._pick_place_active and not self._pick_place_done:
+        if self._object_detected and not self._pick_place_active and not self._pick_place_done:
             self._pick_place_active = True
             self._ridgeback_franka.reset()
             print("[Spot] Object detected! Triggering Ridgeback Franka pick-and-place...")
 
         if self._pick_place_active:
-            self._ridgeback_franka.forward()
+            self._ridgeback_franka.forward(self._ik_method)
             if self._ridgeback_franka.is_done():
                 self._pick_place_active = False
                 self._pick_place_done = True
@@ -908,6 +867,7 @@ class SpotGR00TRunner(object):
         print(f"  Forward speed: {self._forward_speed}")
         print(f"  Query interval: {self._query_interval}s")
         print(f"  Warmup period: {self._warmup_seconds}s")
+        print(f"  IK method: {self._ik_method}")
         print("  Detection: GR00T backbone feature novelty")
         print("  Flow: Spot walks -> detects object -> stops")
         print("        -> Ridgeback Franka picks and places cube")
@@ -916,8 +876,8 @@ class SpotGR00TRunner(object):
         print("")
 
         while simulation_app.is_running():
-            self._world.step(render=True)
-            if self._world.is_stopped():
+            simulation_app.update()
+            if not self._timeline.is_playing():
                 self.needs_reset = True
         return
 
@@ -948,12 +908,24 @@ def main():
                         help="Prim path of Spot's camera to use")
     parser.add_argument("--cube-offset", type=float, default=3.0,
                         help="Position along +x axis where cube/table are placed for Ridgeback Franka")
+    parser.add_argument(
+        "--ik-method",
+        type=str,
+        choices=["singular-value-decomposition", "pseudoinverse", "transpose", "damped-least-squares"],
+        default="damped-least-squares",
+        help="Differential inverse kinematics method for Franka arm",
+    )
     args = parser.parse_args()
 
     physics_dt = 1 / 200.0
     render_dt = 1 / 60.0
 
+    franka_pick_place = FrankaPickPlace()
+    franka_pick_place.setup_scene()
+    simulation_app.update()
+
     runner = SpotGR00TRunner(
+        franka_pick_place=franka_pick_place,
         physics_dt=physics_dt,
         render_dt=render_dt,
         task_description=args.task,
@@ -963,12 +935,14 @@ def main():
         query_interval=args.query_interval,
         camera_prim=args.camera_prim,
         cube_offset=args.cube_offset,
+        ik_method=args.ik_method,
     )
     simulation_app.update()
-    runner._world.reset()
+
+    timeline = omni.timeline.get_timeline_interface()
+    timeline.play()
     simulation_app.update()
-    runner.setup_ridgeback_franka()
-    simulation_app.update()
+
     runner.setup()
     simulation_app.update()
     runner.run()
