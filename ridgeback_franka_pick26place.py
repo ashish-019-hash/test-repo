@@ -226,24 +226,18 @@ class RidgebackFrankaMobile:
         return np.array([translation[0], translation[1], translation[2]])
 
     def _move_cube_to_position(self, position):
-        """Relocate the scene cube to a new world position via USD."""
+        """Relocate the scene cube using the dynamic control rigid-body API.
+
+        Avoids touching USD xform ops so that the physics simulation view
+        stays valid.  Falls back to updating the existing translate op only
+        when dynamic control is unavailable.
+        """
         if self._cube_prim_path is None:
             print("[WARNING] No cube prim found, cannot relocate")
             return
 
-        stage = omni.usd.get_context().get_stage()
-        prim = stage.GetPrimAtPath(self._cube_prim_path)
-        if not prim.IsValid():
-            print(f"[WARNING] Cube prim {self._cube_prim_path} is invalid")
-            return
-
-        xform = UsdGeom.Xformable(prim)
-        xform.ClearXformOpOrder()
-        translate_op = xform.AddTranslateOp()
         cube_height = position[2] if position[2] != 0 else 0.025
-        translate_op.Set(
-            Gf.Vec3d(float(position[0]), float(position[1]), float(cube_height))
-        )
+        moved = False
 
         if self._dc is not None:
             try:
@@ -261,8 +255,29 @@ class RidgebackFrankaMobile:
                     self._dc.set_rigid_body_angular_velocity(
                         body_handle, _dynamic_control.float3(0, 0, 0)
                     )
+                    moved = True
             except Exception as e:
                 print(f"[WARNING] Could not set cube rigid body pose: {e}")
+
+        if not moved:
+            stage = omni.usd.get_context().get_stage()
+            prim = stage.GetPrimAtPath(self._cube_prim_path)
+            if prim.IsValid():
+                xform = UsdGeom.Xformable(prim)
+                ops = xform.GetOrderedXformOps()
+                updated = False
+                for op in ops:
+                    if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                        op.Set(Gf.Vec3d(
+                            float(position[0]), float(position[1]), float(cube_height)
+                        ))
+                        updated = True
+                        break
+                if not updated:
+                    translate_op = xform.AddTranslateOp()
+                    translate_op.Set(Gf.Vec3d(
+                        float(position[0]), float(position[1]), float(cube_height)
+                    ))
 
         print(f"[INFO] Moved cube to position ({position[0]:.2f}, {position[1]:.2f}, {cube_height:.3f})")
 
@@ -427,9 +442,6 @@ class RidgebackFrankaMobile:
                 self._original_cube_position = self._get_prim_world_position(
                     stage, self._cube_prim_path
                 )
-
-        if self._original_cube_position is not None:
-            self._move_cube_to_position(self._original_cube_position)
 
         self._set_positions(self.start_position)
         self.franka_pick_place.reset()
