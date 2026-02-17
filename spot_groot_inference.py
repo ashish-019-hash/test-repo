@@ -663,7 +663,7 @@ class SpotGR00TRunner(object):
         )
 
         self._franka_pick_place = FrankaPickPlace()
-        self._franka_pick_place.setup_scene()
+        self._world.add_task(self._franka_pick_place)
 
         self._ridgeback_franka = RidgebackFrankaMobile(
             self._franka_pick_place, cube_offset=cube_offset,
