@@ -99,7 +99,8 @@ class RidgebackFrankaMobile:
         self._franka_xform = None
         self._scene_prim_originals = {}
         self._cube_prim_path = None
-        self._cube_grip_offset = np.array([0.0, 0.0, 0.0])
+        self._gripper_prim_path = None
+        self._gripper_to_cube_offset = np.array([0.0, 0.0, -0.04])
         self._pick_steps = 0
 
     def setup_mobile_base(self, stage):
@@ -130,6 +131,7 @@ class RidgebackFrankaMobile:
         self._discover_scene_prims(stage)
         self._apply_scene_offset(stage)
         self._find_cube_prim(stage)
+        self._find_gripper_prim(stage)
 
         print(f"[INFO] Created Ridgeback mobile base at start position {self.start_position}")
         print(f"[INFO] Cube/table offset to x={self.cube_offset}m, round-trip travel: {self.cube_offset * 2:.2f}m")
@@ -208,6 +210,56 @@ class RidgebackFrankaMobile:
             if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
                 op.Set(Gf.Vec3d(position[0], position[1], position[2]))
                 return
+
+    def _find_gripper_prim(self, stage):
+        """Find the Franka gripper/hand prim for tracking during transport."""
+        if self._franka_prim_path is None:
+            return
+        candidates = [
+            f"{self._franka_prim_path}/panda_hand",
+            f"{self._franka_prim_path}/panda_link8",
+            f"{self._franka_prim_path}/panda_link7",
+        ]
+        for path in candidates:
+            prim = stage.GetPrimAtPath(path)
+            if prim.IsValid():
+                self._gripper_prim_path = path
+                print(f"[INFO] Found gripper prim: {path}")
+                return
+        franka_prim = stage.GetPrimAtPath(self._franka_prim_path)
+        if franka_prim.IsValid():
+            for prim in Usd.PrimRange(franka_prim):
+                name = prim.GetName().lower()
+                if "hand" in name or "gripper" in name or "tool" in name:
+                    self._gripper_prim_path = str(prim.GetPath())
+                    print(f"[INFO] Found gripper prim by search: {self._gripper_prim_path}")
+                    return
+        print("[WARNING] Could not find gripper prim, cube transport may not track correctly")
+
+    def _get_gripper_world_position(self, stage):
+        """Get the gripper's world position via composed USD transforms."""
+        if self._gripper_prim_path is None:
+            return None
+        prim = stage.GetPrimAtPath(self._gripper_prim_path)
+        if not prim.IsValid():
+            return None
+        xform_cache = UsdGeom.XformCache(Usd.TimeCode.Default())
+        world_transform = xform_cache.GetLocalToWorldTransform(prim)
+        pos = world_transform.ExtractTranslation()
+        return np.array([pos[0], pos[1], pos[2]])
+
+    def _position_cube_at_gripper(self, stage):
+        """Place the cube at the gripper's current world position + offset."""
+        gripper_pos = self._get_gripper_world_position(stage)
+        if gripper_pos is not None:
+            cube_target = gripper_pos + self._gripper_to_cube_offset
+            self._set_cube_position(stage, cube_target)
+            return
+        self._set_cube_position(stage, np.array([
+            self._current_position[0],
+            self._current_position[1],
+            0.5
+        ]))
 
     def _is_cube_lifted(self, stage):
         """Check if the cube has been lifted above its original height."""
@@ -459,38 +511,21 @@ class RidgebackFrankaMobile:
             cube_lifted = self._is_cube_lifted(stage)
             pick_done = self.franka_pick_place.is_done()
 
-            if cube_lifted or (self._pick_steps > 800 and not pick_done):
+            if cube_lifted or pick_done or self._pick_steps > 800:
+                gripper_pos = self._get_gripper_world_position(stage)
                 cube_pos = self._get_cube_position(stage)
-                if cube_pos is not None:
-                    self._cube_grip_offset = cube_pos - np.array([
-                        self._current_position[0],
-                        self._current_position[1],
-                        0.0
-                    ])
-                print(f"[STATE] PICK_CUBE -> RETURN_TO_START (picked after {self._pick_steps} steps)")
-                self._state = MobileState.RETURN_TO_START
-                self._state_step_count = 0
-            elif pick_done:
-                cube_pos = self._get_cube_position(stage)
-                if cube_pos is not None:
-                    self._cube_grip_offset = cube_pos - np.array([
-                        self._current_position[0],
-                        self._current_position[1],
-                        0.0
-                    ])
-                print(f"[STATE] PICK_CUBE -> RETURN_TO_START (full cycle in {self._pick_steps} steps)")
+                if gripper_pos is not None and cube_pos is not None:
+                    self._gripper_to_cube_offset = cube_pos - gripper_pos
+                elif gripper_pos is not None:
+                    self._gripper_to_cube_offset = np.array([0.0, 0.0, -0.04])
+                reason = "lifted" if cube_lifted else ("full-cycle" if pick_done else "timeout")
+                print(f"[STATE] PICK_CUBE -> RETURN_TO_START ({reason} after {self._pick_steps} steps)")
                 self._state = MobileState.RETURN_TO_START
                 self._state_step_count = 0
 
         elif self._state == MobileState.RETURN_TO_START:
             reached = self._move_towards(self.start_position)
-
-            cube_pos = np.array([
-                self._current_position[0] + self._cube_grip_offset[0],
-                self._current_position[1] + self._cube_grip_offset[1],
-                self._cube_grip_offset[2]
-            ])
-            self._set_cube_position(stage, cube_pos)
+            self._position_cube_at_gripper(stage)
 
             if reached or self._state_step_count > 2000:
                 print("[STATE] RETURN_TO_START -> WAIT_SETTLED_RETURN")
@@ -500,13 +535,7 @@ class RidgebackFrankaMobile:
 
         elif self._state == MobileState.WAIT_SETTLED_RETURN:
             self._settled_steps += 1
-
-            cube_pos = np.array([
-                self._current_position[0] + self._cube_grip_offset[0],
-                self._current_position[1] + self._cube_grip_offset[1],
-                self._cube_grip_offset[2]
-            ])
-            self._set_cube_position(stage, cube_pos)
+            self._position_cube_at_gripper(stage)
 
             if self._settled_steps > 30:
                 print("[STATE] WAIT_SETTLED_RETURN -> PLACE_CUBE")
