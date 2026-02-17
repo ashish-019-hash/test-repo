@@ -820,7 +820,7 @@ class SpotGR00TRunner(object):
                 print(f"[Spot] Warming up... {elapsed:.1f}s / {self._warmup_seconds}s")
             return
 
-        if not self._pick_place_active and not self._pick_place_done:
+        if not self._pick_place_active:
             if (now - self._last_query_time) >= self._query_interval:
                 self._last_query_time = now
                 self._query_groot()
@@ -880,7 +880,11 @@ class SpotGR00TRunner(object):
                     self._pick_place_active = False
                     self._pick_place_done = True
                     self._object_detected = False
-                    print("[Spot] Pick-and-place complete! Spot resuming walk. Press SPACE to reset for another cycle.")
+                    self._policy.reset()
+                    self._start_time = time.time()
+                    self._query_count = 0
+                    self._camera_ready = False
+                    print("[Spot] Pick-and-place complete! Spot resuming walk with GR00T queries. Press SPACE to reset for another cycle.")
         return
 
     def _sub_keyboard_event(self, event, *args, **kwargs) -> bool:
