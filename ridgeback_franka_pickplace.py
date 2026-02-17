@@ -14,6 +14,7 @@ drives to the table, then the Franka arm performs pick-and-place.
 from __future__ import annotations
 
 import argparse
+import os
 import numpy as np
 from enum import Enum
 
@@ -31,6 +32,12 @@ parser.add_argument(
     type=float,
     default=1.0,
     help="Distance in meters from table where Ridgeback starts",
+)
+parser.add_argument(
+    "--assets-path",
+    type=str,
+    default=None,
+    help="Local path to Isaac Sim assets root (e.g. /home/user/isaac_assets). If not set, uses default Nucleus/S3 server.",
 )
 args, _ = parser.parse_known_args()
 
@@ -376,6 +383,43 @@ def main():
     SimulationManager.set_physics_sim_device(args.device)
     simulation_app.update()
 
+    if args.assets_path:
+        import carb.settings
+        settings = carb.settings.get_settings()
+        settings.set("/persistent/isaac/asset_root/default", args.assets_path)
+        settings.set("/persistent/isaac/asset_root/cloud", args.assets_path)
+        settings.set("/persistent/isaac/asset_root/nvidia", args.assets_path)
+        print(f"[INFO] Using local assets path: {args.assets_path}")
+    else:
+        try:
+            test_path = get_assets_root_path()
+            print(f"[INFO] Assets root path: {test_path}")
+        except RuntimeError:
+            import carb.settings
+            settings = carb.settings.get_settings()
+            isaac_sim_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            local_candidates = [
+                os.path.join(isaac_sim_dir, "data", "Assets"),
+                os.path.expanduser("~/isaac_assets"),
+                "/home/ashish/isaac_assets",
+            ]
+            found_local = None
+            for candidate in local_candidates:
+                if os.path.isdir(candidate):
+                    found_local = candidate
+                    break
+            if found_local:
+                settings.set("/persistent/isaac/asset_root/default", found_local)
+                settings.set("/persistent/isaac/asset_root/cloud", found_local)
+                settings.set("/persistent/isaac/asset_root/nvidia", found_local)
+                print(f"[INFO] Remote assets unavailable. Using local path: {found_local}")
+            else:
+                print("[ERROR] Cannot reach remote asset server and no local assets found.")
+                print("  Please provide a local assets path with --assets-path /path/to/assets")
+                print("  Or download assets: omni_asset_download --path ~/isaac_assets")
+                simulation_app.close()
+                return
+
     franka_pick_place = FrankaPickPlace()
     franka_pick_place.setup_scene()
 
@@ -420,7 +464,10 @@ def main():
                 print(f"[INFO] Repositioned object at {prim_path} to Y={cube_y_offset}")
                 break
 
-    assets_root_path = get_assets_root_path()
+    try:
+        assets_root_path = get_assets_root_path()
+    except RuntimeError:
+        assets_root_path = args.assets_path
     if assets_root_path is None:
         carb.log_error("Could not find Isaac Sim assets folder")
         return
