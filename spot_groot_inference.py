@@ -830,7 +830,7 @@ class SpotGR00TRunner(object):
             self._ridgeback_franka.reset()
             print("[Spot] Object detected! Triggering Ridgeback Franka pick-and-place...")
 
-        if self._object_detected or self._pick_place_active or self._pick_place_done:
+        if self._pick_place_active or (self._object_detected and not self._pick_place_done):
             self._spot.forward(step_size, np.zeros(3))
         else:
             self._spot.forward(step_size, np.array([self._forward_speed, 0.0, 0.0]))
@@ -878,13 +878,9 @@ class SpotGR00TRunner(object):
                 self._ridgeback_franka.forward(self._ik_method)
                 if self._ridgeback_franka.is_done():
                     self._pick_place_active = False
-                    self._pick_place_done = False
+                    self._pick_place_done = True
                     self._object_detected = False
-                    self._policy.reset()
-                    self._start_time = time.time()
-                    self._query_count = 0
-                    self._camera_ready = False
-                    print("[Spot] Pick-and-place complete! Resuming walk with fresh GR00T detection...")
+                    print("[Spot] Pick-and-place complete! Spot resuming walk. Press SPACE to reset for another cycle.")
         return
 
     def _sub_keyboard_event(self, event, *args, **kwargs) -> bool:
