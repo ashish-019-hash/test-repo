@@ -664,8 +664,11 @@ class SpotGR00TRunner(object):
             orientation=np.array([0.707, 0, 0, -0.707]),
         )
 
-        self._setup_ridgeback_franka(cube_offset)
+        self._cube_offset = cube_offset
         self._ik_method = ik_method
+        self._franka_pick_place = None
+        self._ridgeback_franka = None
+        self._ridgeback_initialized = False
 
         self._camera_prim = camera_prim
         self._setup_camera()
@@ -697,17 +700,22 @@ class SpotGR00TRunner(object):
         self.needs_reset = False
         self.first_step = True
 
-    def _setup_ridgeback_franka(self, cube_offset):
-        """Set up the Ridgeback Franka mobile manipulator and its cube/table scene."""
+    def setup_ridgeback_franka(self):
+        """Set up the Ridgeback Franka mobile manipulator.
+
+        Must be called AFTER World.reset() to avoid _scene attribute conflicts
+        between FrankaPickPlace and the World instance.
+        """
         self._franka_pick_place = FrankaPickPlace()
         self._franka_pick_place.setup_scene()
         simulation_app.update()
 
         stage = omni.usd.get_context().get_stage()
         self._ridgeback_franka = RidgebackFrankaMobile(
-            self._franka_pick_place, cube_offset=cube_offset
+            self._franka_pick_place, cube_offset=self._cube_offset
         )
         self._ridgeback_franka.setup_mobile_base(stage)
+        self._ridgeback_initialized = True
         print("[Spot] Ridgeback Franka mobile manipulator added to scene.")
 
     def _setup_camera(self):
@@ -814,7 +822,8 @@ class SpotGR00TRunner(object):
         if self.needs_reset:
             self._world.reset(True)
             self._policy.reset()
-            self._ridgeback_franka.reset()
+            if self._ridgeback_initialized:
+                self._ridgeback_franka.reset()
             self._object_detected = False
             self._pick_place_active = False
             self._pick_place_done = False
@@ -841,7 +850,7 @@ class SpotGR00TRunner(object):
                 self._last_query_time = now
                 self._query_groot()
 
-        if self._object_detected and not self._pick_place_active and not self._pick_place_done:
+        if self._ridgeback_initialized and self._object_detected and not self._pick_place_active and not self._pick_place_done:
             self._pick_place_active = True
             self._ridgeback_franka.reset()
             print("[Spot] Object detected! Triggering Ridgeback Franka pick-and-place...")
@@ -935,6 +944,8 @@ def main():
     )
     simulation_app.update()
     runner._world.reset()
+    simulation_app.update()
+    runner.setup_ridgeback_franka()
     simulation_app.update()
     runner.setup()
     simulation_app.update()
