@@ -101,7 +101,9 @@ class RidgebackFrankaMobile:
         self._min_move_speed = 0.0003
         self._accel_distance = 0.3
 
-        self._base_height = 0.2
+        self._base_width = 0.96
+        self._base_depth = 0.793
+        self._base_height = 0.35
 
         self._franka_prim_path = None
         self._dc = None
@@ -118,14 +120,12 @@ class RidgebackFrankaMobile:
 
         print(f"[INFO] Found Franka robot at: {self._franka_prim_path}")
 
-        self._set_franka_floating_base(stage)
-
         cube_prim = UsdGeom.Cube.Define(stage, self._mobile_base_prim_path)
-        cube_prim.GetSizeAttr().Set(0.5)
+        cube_prim.GetSizeAttr().Set(1.0)
 
         xform = UsdGeom.Xformable(cube_prim)
         scale_op = xform.AddScaleOp()
-        scale_op.Set(Gf.Vec3f(1.0, 0.7, 0.4))
+        scale_op.Set(Gf.Vec3f(self._base_width, self._base_depth, self._base_height))
 
         translate_op = xform.AddTranslateOp()
         translate_op.Set(Gf.Vec3d(self.start_position[0], self.start_position[1], self._base_height / 2.0))
@@ -157,31 +157,6 @@ class RidgebackFrankaMobile:
                     return path
 
         return "/World/Franka"
-
-    def _set_franka_floating_base(self, stage):
-        """Configure the Franka articulation to have a floating base."""
-        if self._franka_prim_path is None:
-            return
-
-        franka_prim = stage.GetPrimAtPath(self._franka_prim_path)
-        if not franka_prim.IsValid():
-            return
-
-        prims_to_check = [franka_prim] + list(Usd.PrimRange(franka_prim))
-
-        for prim in prims_to_check:
-            prim_path = str(prim.GetPath())
-            articulation_api = PhysxSchema.PhysxArticulationAPI.Get(stage, prim_path)
-
-            if articulation_api:
-                try:
-                    fix_base_attr = articulation_api.GetFixBaseAttr()
-                    if fix_base_attr:
-                        fix_base_attr.Set(False)
-                    else:
-                        articulation_api.CreateFixBaseAttr(False)
-                except Exception as e:
-                    print(f"[WARNING] Could not modify fixBase: {e}")
 
     def _set_franka_usd_position(self, stage, position):
         """Set the Franka's position using USD transforms."""
