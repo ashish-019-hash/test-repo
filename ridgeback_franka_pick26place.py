@@ -123,6 +123,11 @@ class RidgebackFrankaMobile:
         self._carrying_cube = False
         self._arm_phase = 0
         self._arm_anim_step = 0
+        self._arm_control_initialized = False
+        self._arm_control_method = None
+        self._franka_arm_robot = None
+        self._arm_joint_paths = []
+        self._finger_joint_paths = []
 
         self._franka_prim_path = None
         self._dc = None
@@ -291,29 +296,143 @@ class RidgebackFrankaMobile:
 
         print(f"[INFO] Moved cube to position ({position[0]:.2f}, {position[1]:.2f}, {cube_height:.3f})")
 
+    def _init_arm_control(self):
+        """Discover and initialize the best available API for arm joint control."""
+        stage = omni.usd.get_context().get_stage()
+
+        for attr_name in ['robot', '_robot', 'franka', '_franka']:
+            obj = getattr(self.franka_pick_place, attr_name, None)
+            if obj is not None:
+                self._franka_arm_robot = obj
+                print(f"[ARM_INIT] Found robot via FrankaPickPlace.{attr_name}: {type(obj).__name__}")
+                break
+
+        if self._franka_arm_robot is not None:
+            for name in ['set_dof_position_targets', 'set_joint_position_targets',
+                         'set_dof_positions', 'set_joint_positions']:
+                if hasattr(self._franka_arm_robot, name):
+                    self._arm_control_method = name
+                    print(f"[ARM_INIT] Will use robot.{name}()")
+                    return
+
+        if self._franka_prim_path:
+            franka_prim = stage.GetPrimAtPath(self._franka_prim_path)
+            if franka_prim.IsValid():
+                for prim in Usd.PrimRange(franka_prim):
+                    name_lower = prim.GetName().lower()
+                    if 'panda_joint' in name_lower and 'finger' not in name_lower:
+                        self._arm_joint_paths.append(str(prim.GetPath()))
+                    elif 'finger_joint' in name_lower:
+                        self._finger_joint_paths.append(str(prim.GetPath()))
+                self._arm_joint_paths.sort()
+                self._finger_joint_paths.sort()
+                if self._arm_joint_paths:
+                    self._arm_control_method = 'usd_drive'
+                    print(f"[ARM_INIT] Will use USD Drive API on "
+                          f"{len(self._arm_joint_paths)} arm + "
+                          f"{len(self._finger_joint_paths)} finger joints")
+                    for p in self._arm_joint_paths:
+                        print(f"[ARM_INIT]   Arm joint: {p}")
+                    for p in self._finger_joint_paths:
+                        print(f"[ARM_INIT]   Finger joint: {p}")
+                    return
+
+        if self._dc is not None and self._articulation_handle is not None:
+            try:
+                dof_count = self._dc.get_articulation_dof_count(
+                    self._articulation_handle
+                )
+                if dof_count > 0:
+                    self._arm_control_method = 'dc_api'
+                    print(f"[ARM_INIT] Will use DC API (DOF count: {dof_count})")
+                    return
+            except Exception as e:
+                print(f"[ARM_INIT] DC API check failed: {e}")
+
+        print("[ARM_INIT] WARNING: No arm control method found!")
+
     def _set_arm_dof_targets(self, arm_positions, gripper_value):
-        """Set Franka arm joint position targets and gripper opening via DC API."""
-        if self._dc is None or self._articulation_handle is None:
-            return False
-        try:
-            dof_count = self._dc.get_articulation_dof_count(self._articulation_handle)
-            dof_states = self._dc.get_articulation_dof_states(
-                self._articulation_handle, _dynamic_control.STATE_POS
-            )
-            targets = [dof_states.pos[i] for i in range(dof_count)]
-            if dof_count >= 9:
-                arm_start = dof_count - 9
-                for i in range(min(7, len(arm_positions))):
-                    targets[arm_start + i] = float(arm_positions[i])
-                targets[arm_start + 7] = float(gripper_value)
-                targets[arm_start + 8] = float(gripper_value)
-            self._dc.set_articulation_dof_position_targets(
-                self._articulation_handle, targets
-            )
-            return True
-        except Exception as e:
-            print(f"[WARNING] Could not set arm DOF targets: {e}")
-            return False
+        """Set Franka arm joint targets using the best available method."""
+        targets_9 = np.zeros(9)
+        targets_9[:7] = np.array(arm_positions)[:7]
+        targets_9[7] = float(gripper_value)
+        targets_9[8] = float(gripper_value)
+
+        if self._arm_control_method in (
+            'set_dof_position_targets', 'set_joint_position_targets',
+            'set_dof_positions', 'set_joint_positions',
+        ) and self._franka_arm_robot is not None:
+            try:
+                method = getattr(self._franka_arm_robot, self._arm_control_method)
+                method(targets_9)
+                return True
+            except Exception as e:
+                if self._arm_anim_step <= 2:
+                    print(f"[ARM] robot.{self._arm_control_method}() failed: {e}")
+
+        if self._arm_control_method == 'usd_drive':
+            try:
+                stage = omni.usd.get_context().get_stage()
+                for i, path in enumerate(self._arm_joint_paths):
+                    if i >= 7:
+                        break
+                    prim = stage.GetPrimAtPath(path)
+                    if not prim.IsValid():
+                        continue
+                    drive = UsdPhysics.DriveAPI.Get(prim, "angular")
+                    if drive:
+                        attr = drive.GetTargetPositionAttr()
+                        if attr and attr.IsValid():
+                            attr.Set(float(np.degrees(arm_positions[i])))
+                for path in self._finger_joint_paths:
+                    prim = stage.GetPrimAtPath(path)
+                    if not prim.IsValid():
+                        continue
+                    for drive_type in ("linear", "angular"):
+                        drive = UsdPhysics.DriveAPI.Get(prim, drive_type)
+                        if drive:
+                            attr = drive.GetTargetPositionAttr()
+                            if attr and attr.IsValid():
+                                if drive_type == "linear":
+                                    attr.Set(float(gripper_value))
+                                else:
+                                    attr.Set(float(np.degrees(gripper_value)))
+                                break
+                return True
+            except Exception as e:
+                if self._arm_anim_step <= 2:
+                    print(f"[ARM] USD Drive API failed: {e}")
+
+        if self._dc is not None and self._articulation_handle is not None:
+            try:
+                self._dc.wake_up_articulation(self._articulation_handle)
+                dof_count = self._dc.get_articulation_dof_count(
+                    self._articulation_handle
+                )
+                full_targets = np.zeros(dof_count)
+                arm_start = max(0, dof_count - 9)
+                for i in range(min(9, dof_count - arm_start)):
+                    full_targets[arm_start + i] = float(targets_9[i])
+                self._dc.set_articulation_dof_position_targets(
+                    self._articulation_handle, full_targets.tolist()
+                )
+                return True
+            except Exception:
+                try:
+                    for i in range(min(9, dof_count - arm_start)):
+                        dof = self._dc.get_articulation_dof(
+                            self._articulation_handle, arm_start + i
+                        )
+                        if dof != 0:
+                            self._dc.set_dof_position_target(
+                                dof, float(targets_9[i])
+                            )
+                    return True
+                except Exception as e:
+                    if self._arm_anim_step <= 2:
+                        print(f"[ARM] DC API failed: {e}")
+
+        return False
 
     def _set_franka_floating_base(self, stage):
         """Configure the Franka articulation to have a floating base."""
@@ -483,6 +602,10 @@ class RidgebackFrankaMobile:
         self._set_positions(self.start_position)
         self.franka_pick_place.reset()
 
+        if not self._arm_control_initialized:
+            self._init_arm_control()
+            self._arm_control_initialized = True
+
         print(f"[INFO] Ridgeback Franka reset to start position {self.start_position}")
 
     def forward(self, ik_method: str):
@@ -542,6 +665,13 @@ class RidgebackFrankaMobile:
 
         elif self._state == MobileState.ARM_PICK:
             self._arm_anim_step += 1
+
+            if self._arm_anim_step == 1:
+                print(f"[ARM_PICK] method={self._arm_control_method}, "
+                      f"robot={'found' if self._franka_arm_robot else 'None'}, "
+                      f"joints={len(self._arm_joint_paths)}, "
+                      f"dc={'ok' if self._dc else 'None'}, "
+                      f"handle={'ok' if self._articulation_handle else 'None'}")
 
             if self._arm_phase == 0:
                 alpha = min(1.0, self._arm_anim_step / _ANIM_STEPS)
