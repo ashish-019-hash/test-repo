@@ -334,7 +334,7 @@ class RidgebackFrankaMobile:
                 xform = UsdGeom.Xformable(prim)
                 if not xform:
                     continue
-                target = Gf.Vec3d(self.cube_offset, 0.0, orig[2])
+                target = Gf.Vec3d(orig[0] + self.cube_offset, orig[1], orig[2])
                 applied = False
                 for op in xform.GetOrderedXformOps():
                     if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
@@ -825,11 +825,6 @@ class SpotGR00TRunner(object):
                 self._last_query_time = now
                 self._query_groot()
 
-        if self._object_detected and not self._pick_place_active and not self._pick_place_done:
-            self._pick_place_active = True
-            self._ridgeback_franka.reset()
-            print("[Spot] Object detected! Triggering Ridgeback Franka pick-and-place...")
-
         if self._object_detected or self._pick_place_active or self._pick_place_done:
             self._spot.forward(step_size, np.zeros(3))
         else:
@@ -873,6 +868,11 @@ class SpotGR00TRunner(object):
                 self.first_step = True
                 print("[Spot] Episode reset. Spot will start moving forward again.")
                 continue
+
+            if self._object_detected and not self._pick_place_active and not self._pick_place_done:
+                self._pick_place_active = True
+                self._ridgeback_franka.reset()
+                print("[Spot] Object detected! Triggering Ridgeback Franka pick-and-place...")
 
             if self._pick_place_active:
                 self._ridgeback_franka.forward(self._ik_method)
