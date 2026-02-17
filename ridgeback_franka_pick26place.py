@@ -8,11 +8,11 @@ This script combines:
 3. The Simple Warehouse environment
 
 Extended behavior:
-- The Franka arm picks a cube from the table and places it (first cycle).
-- The cube is then relocated to a configurable far position.
-- The Ridgeback walks to the far position, the arm picks the cube (second cycle).
+- The cube is relocated to a configurable far position at the start.
+- The Ridgeback walks to the far position where the cube now is.
+- The Franka arm performs pick-and-place at the new location.
 - The Ridgeback walks back to the original table position and the cube is
-  placed at the original starting position.
+  restored to the original starting position.
 """
 
 from __future__ import annotations
@@ -70,26 +70,23 @@ except ImportError:
 
 class MobileState(Enum):
     INIT = 0
-    MOVE_TO_TABLE = 1
-    WAIT_SETTLED = 2
-    PICK_PLACE = 3
-    RELOCATE_CUBE_FAR = 4
-    MOVE_TO_FAR = 5
-    WAIT_SETTLED_FAR = 6
-    PICK_PLACE_FAR = 7
-    MOVE_TO_ORIGIN = 8
-    WAIT_SETTLED_ORIGIN = 9
-    DONE = 10
+    RELOCATE_CUBE_FAR = 1
+    MOVE_TO_FAR = 2
+    WAIT_SETTLED_FAR = 3
+    PICK_PLACE = 4
+    MOVE_TO_ORIGIN = 5
+    WAIT_SETTLED_ORIGIN = 6
+    DONE = 7
 
 
 class RidgebackFrankaMobile:
     """Ridgeback Franka mobile manipulator with extended pick-and-place.
 
     Wraps FrankaPickPlace with a visual Ridgeback mobile base. The workflow is:
-    1. Drive to the table, pick up the cube, and place it (first cycle).
-    2. The cube is relocated to a configurable far position.
-    3. Drive to the far position, pick up the cube (second cycle).
-    4. Drive back to the original table position where the cube is placed.
+    1. The cube is relocated to a configurable far position at startup.
+    2. The Ridgeback drives to the far position.
+    3. The Franka arm picks the cube (single pick-and-place cycle).
+    4. The Ridgeback drives back to the original table position.
     """
 
     def __init__(
@@ -452,44 +449,20 @@ class RidgebackFrankaMobile:
         """Execute one step of the extended mobile manipulation.
 
         State machine flow:
-        INIT -> MOVE_TO_TABLE -> WAIT_SETTLED -> PICK_PLACE (first cycle at table)
-             -> RELOCATE_CUBE_FAR -> MOVE_TO_FAR -> WAIT_SETTLED_FAR
-             -> PICK_PLACE_FAR (second cycle at far position)
-             -> MOVE_TO_ORIGIN -> WAIT_SETTLED_ORIGIN -> DONE
+        INIT -> RELOCATE_CUBE_FAR (move cube to far position)
+             -> MOVE_TO_FAR (walk to far position)
+             -> WAIT_SETTLED_FAR
+             -> PICK_PLACE (single cycle at far position)
+             -> MOVE_TO_ORIGIN (walk back to original table position)
+             -> WAIT_SETTLED_ORIGIN -> DONE
         """
         self._step_count += 1
         self._state_step_count += 1
 
         if self._state == MobileState.INIT:
-            print("[STATE] INIT -> MOVE_TO_TABLE")
-            self._state = MobileState.MOVE_TO_TABLE
+            print("[STATE] INIT -> RELOCATE_CUBE_FAR")
+            self._state = MobileState.RELOCATE_CUBE_FAR
             self._state_step_count = 0
-
-        elif self._state == MobileState.MOVE_TO_TABLE:
-            reached = self._move_towards(self.table_position)
-
-            if reached or self._state_step_count > 1000:
-                print("[STATE] MOVE_TO_TABLE -> WAIT_SETTLED")
-                self._state = MobileState.WAIT_SETTLED
-                self._state_step_count = 0
-                self._settled_steps = 0
-
-        elif self._state == MobileState.WAIT_SETTLED:
-            self._settled_steps += 1
-
-            if self._settled_steps > 30:
-                print("[STATE] WAIT_SETTLED -> PICK_PLACE")
-                self._state = MobileState.PICK_PLACE
-                self._state_step_count = 0
-                self.franka_pick_place.reset()
-
-        elif self._state == MobileState.PICK_PLACE:
-            self.franka_pick_place.forward(ik_method)
-
-            if self.franka_pick_place.is_done():
-                print("[STATE] PICK_PLACE -> RELOCATE_CUBE_FAR")
-                self._state = MobileState.RELOCATE_CUBE_FAR
-                self._state_step_count = 0
 
         elif self._state == MobileState.RELOCATE_CUBE_FAR:
             cube_height = 0.025
@@ -501,7 +474,7 @@ class RidgebackFrankaMobile:
                 cube_height,
             ])
             self._move_cube_to_position(far_cube_pos)
-            print(f"[STATE] RELOCATE_CUBE_FAR -> MOVE_TO_FAR (cube at {far_cube_pos})")
+            print(f"[STATE] RELOCATE_CUBE_FAR -> MOVE_TO_FAR (cube moved to {far_cube_pos})")
             self._state = MobileState.MOVE_TO_FAR
             self._state_step_count = 0
 
@@ -518,18 +491,18 @@ class RidgebackFrankaMobile:
             self._settled_steps += 1
 
             if self._settled_steps > 30:
-                print("[STATE] WAIT_SETTLED_FAR -> PICK_PLACE_FAR")
-                self._state = MobileState.PICK_PLACE_FAR
+                print("[STATE] WAIT_SETTLED_FAR -> PICK_PLACE")
+                self._state = MobileState.PICK_PLACE
                 self._state_step_count = 0
                 self.franka_pick_place.reset()
 
-        elif self._state == MobileState.PICK_PLACE_FAR:
+        elif self._state == MobileState.PICK_PLACE:
             self.franka_pick_place.forward(ik_method)
 
             if self.franka_pick_place.is_done():
                 if self._original_cube_position is not None:
                     self._move_cube_to_position(self._original_cube_position)
-                print("[STATE] PICK_PLACE_FAR -> MOVE_TO_ORIGIN")
+                print("[STATE] PICK_PLACE -> MOVE_TO_ORIGIN")
                 self._state = MobileState.MOVE_TO_ORIGIN
                 self._state_step_count = 0
 
