@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 from enum import Enum
 import omni.appwindow
+import sys
 import omni.usd
 import omni.timeline
 
@@ -624,6 +625,7 @@ class SpotGR00TRunner(object):
         camera_prim=DEFAULT_CAMERA_PRIM,
         cube_offset=3.0,
         ik_method="damped-least-squares",
+        spot_base_dir=None,
     ):
         self._world = World(
             stage_units_in_meters=1.0,
@@ -639,11 +641,19 @@ class SpotGR00TRunner(object):
         asset_path = assets_root_path + "/Isaac/Environments/Simple_Warehouse/warehouse_multiple_shelves.usd"
         prim.GetReferences().AddReference(asset_path)
 
-        BASE_DIR = Path(__file__).resolve().parent.parent
+        if spot_base_dir is None:
+            spot_base_dir = str(Path(__file__).resolve().parent.parent)
+        spot_base = Path(spot_base_dir)
+
+        spot_module_dir = str(spot_base)
+        if spot_module_dir not in sys.path:
+            sys.path.insert(0, spot_module_dir)
+            print(f"[Spot] Added {spot_module_dir} to sys.path")
+
         from spot_policy import SpotFlatTerrainPolicy
-        policy_path = os.path.join(BASE_DIR, "policies/spot/models", "spot_policy.pt")
-        policy_params_path = os.path.join(BASE_DIR, "policies/spot/params", "env.yaml")
-        usd_path = os.path.join(BASE_DIR, "assets", "spot.usd")
+        policy_path = os.path.join(spot_base, "policies/spot/models", "spot_policy.pt")
+        policy_params_path = os.path.join(spot_base, "policies/spot/params", "env.yaml")
+        usd_path = os.path.join(spot_base, "assets", "spot.usd")
 
         self._spot = SpotFlatTerrainPolicy(
             prim_path="/World/Spot",
@@ -895,6 +905,9 @@ def main():
                         help="Prim path of Spot's camera to use")
     parser.add_argument("--cube-offset", type=float, default=3.0,
                         help="Franka cube/table position along +x axis")
+    parser.add_argument("--spot-base-dir", type=str, default=None,
+                        help="Base directory containing spot_policy.py, policies/, assets/ "
+                             "(default: parent of this script's parent)")
     parser.add_argument(
         "--ik-method",
         type=str,
@@ -917,6 +930,7 @@ def main():
         camera_prim=args.camera_prim,
         cube_offset=args.cube_offset,
         ik_method=args.ik_method,
+        spot_base_dir=args.spot_base_dir,
     )
     simulation_app.update()
     runner._world.reset()
