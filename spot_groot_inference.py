@@ -663,12 +663,9 @@ class SpotGR00TRunner(object):
         )
 
         self._franka_pick_place = FrankaPickPlace()
-        self._world.add_task(self._franka_pick_place)
-
-        self._ridgeback_franka = RidgebackFrankaMobile(
-            self._franka_pick_place, cube_offset=cube_offset,
-        )
+        self._cube_offset = cube_offset
         self._ik_method = ik_method
+        self._ridgeback_franka = None
         self._ridgeback_initialized = False
 
         self._add_cube_obstacle()
@@ -793,7 +790,13 @@ class SpotGR00TRunner(object):
             import traceback
             traceback.print_exc()
 
-    def setup_ridgeback(self):
+    def setup_franka_and_ridgeback(self):
+        self._franka_pick_place.setup_scene()
+        simulation_app.update()
+
+        self._ridgeback_franka = RidgebackFrankaMobile(
+            self._franka_pick_place, cube_offset=self._cube_offset,
+        )
         stage = omni.usd.get_context().get_stage()
         self._ridgeback_franka.setup_mobile_base(stage)
 
@@ -933,7 +936,7 @@ def main():
     simulation_app.update()
     runner._world.reset()
     simulation_app.update()
-    runner.setup_ridgeback()
+    runner.setup_franka_and_ridgeback()
     simulation_app.update()
     runner.setup()
     simulation_app.update()
