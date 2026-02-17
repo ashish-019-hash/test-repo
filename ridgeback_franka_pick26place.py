@@ -29,14 +29,8 @@ parser.add_argument(
 parser.add_argument(
     "--start-distance",
     type=float,
-    default=1.0,
-    help="Distance in meters behind the origin where Ridgeback starts",
-)
-parser.add_argument(
-    "--cube-distance",
-    type=float,
     default=5.0,
-    help="Distance in meters along x-axis to place the cube further from origin",
+    help="Distance in meters from the cube/table where Ridgeback starts",
 )
 args, _ = parser.parse_known_args()
 
@@ -80,10 +74,9 @@ class RidgebackFrankaMobile:
     arm performs pick-and-place.
     """
 
-    def __init__(self, franka_pick_place: FrankaPickPlace, start_distance: float = 1.0, cube_distance: float = 5.0):
+    def __init__(self, franka_pick_place: FrankaPickPlace, start_distance: float = 5.0):
         self.franka_pick_place = franka_pick_place
         self.start_distance = start_distance
-        self.cube_distance = cube_distance
 
         self._mobile_base_prim_path = "/World/RidgebackBase"
         self._state = MobileState.INIT
@@ -92,7 +85,7 @@ class RidgebackFrankaMobile:
         self._settled_steps = 0
 
         self.start_position = np.array([-start_distance, 0.0, 0.0])
-        self.table_position = np.array([cube_distance, 0.0, 0.0])
+        self.table_position = np.array([0.0, 0.0, 0.0])
         self._current_position = self.start_position.copy()
         self._move_speed = 0.01
 
@@ -127,42 +120,10 @@ class RidgebackFrankaMobile:
 
         self._set_franka_usd_position(stage, self.start_position)
 
-        if self.cube_distance != 0.0:
-            self._offset_scene_objects(stage, self.cube_distance)
-
         print(f"[INFO] Created Ridgeback mobile base at start position {self.start_position}")
-        print(f"[INFO] Total travel distance: {np.linalg.norm(self.table_position - self.start_position):.2f}m")
+        print(f"[INFO] Total travel distance: {self.start_distance:.2f}m")
 
         return self._mobile_base_prim_path
-
-    def _offset_scene_objects(self, stage, offset_x):
-        """Translate cube and table scene prims further along the x-axis."""
-        franka_path = self._franka_prim_path or "/World/Franka"
-        skip_prefixes = (franka_path, self._mobile_base_prim_path, "/World/Warehouse")
-
-        for prim in stage.Traverse():
-            path = str(prim.GetPath())
-            if any(path.startswith(prefix) for prefix in skip_prefixes):
-                continue
-            name = prim.GetName().lower()
-            if not any(kw in name for kw in ["cube", "table", "block", "target", "goal", "object"]):
-                continue
-            try:
-                xform = UsdGeom.Xformable(prim)
-                if not xform:
-                    continue
-                translated = False
-                for op in xform.GetOrderedXformOps():
-                    if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
-                        cur = op.Get()
-                        op.Set(Gf.Vec3d(cur[0] + offset_x, cur[1], cur[2]))
-                        translated = True
-                        break
-                if not translated:
-                    xform.AddTranslateOp().Set(Gf.Vec3d(offset_x, 0.0, 0.0))
-                print(f"[INFO] Offset scene prim {path} by {offset_x}m along x-axis")
-            except Exception as e:
-                print(f"[WARNING] Could not offset {path}: {e}")
 
     def _find_franka_prim(self, stage):
         """Find the Franka robot prim in the scene."""
@@ -391,10 +352,8 @@ def main():
     print("Ridgeback + Franka Mobile Manipulator Pick-and-Place Demo")
     print("(Warehouse Environment)")
     print("=" * 60)
-    total_travel = args.start_distance + args.cube_distance
-    print(f"\nCube placed at {args.cube_distance}m along x-axis from origin.")
-    print(f"Ridgeback starts at -{args.start_distance}m, total travel distance: {total_travel:.1f}m.")
-    print("Mobile base drives to the cube, then Franka performs pick-and-place.")
+    print(f"\nRidgeback starts {args.start_distance}m from the cube/table,")
+    print("drives to the cube, then Franka performs pick-and-place.")
     print(f"IK method: {args.ik_method}")
     print("=" * 60)
 
@@ -419,7 +378,7 @@ def main():
 
     stage = omni.usd.get_context().get_stage()
 
-    ridgeback_franka = RidgebackFrankaMobile(franka_pick_place, start_distance=args.start_distance, cube_distance=args.cube_distance)
+    ridgeback_franka = RidgebackFrankaMobile(franka_pick_place, start_distance=args.start_distance)
     ridgeback_franka.setup_mobile_base(stage)
     simulation_app.update()
 
