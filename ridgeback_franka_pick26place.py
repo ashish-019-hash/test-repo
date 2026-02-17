@@ -9,10 +9,9 @@ This script combines:
 
 Extended behavior:
 - The cube is relocated to a configurable far position at the start.
-- The Ridgeback walks to the far position where the cube now is.
-- The Franka arm performs pick-and-place at the new location.
-- The Ridgeback walks back to the original table position and the cube is
-  restored to the original starting position.
+- The Ridgeback walks to near the cube (stops within arm reach, not on top).
+- The arm grabs the cube, then the Ridgeback carries it back to the origin.
+- At the original table position the arm places the cube down.
 """
 
 from __future__ import annotations
@@ -71,12 +70,13 @@ except ImportError:
 class MobileState(Enum):
     INIT = 0
     RELOCATE_CUBE_FAR = 1
-    MOVE_TO_FAR = 2
-    WAIT_SETTLED_FAR = 3
-    PICK_PLACE = 4
-    MOVE_TO_ORIGIN = 5
+    MOVE_TO_NEAR_CUBE = 2
+    WAIT_SETTLED_NEAR = 3
+    GRAB_CUBE = 4
+    CARRY_TO_ORIGIN = 5
     WAIT_SETTLED_ORIGIN = 6
-    DONE = 7
+    PLACE_AT_ORIGIN = 7
+    DONE = 8
 
 
 class RidgebackFrankaMobile:
@@ -84,9 +84,9 @@ class RidgebackFrankaMobile:
 
     Wraps FrankaPickPlace with a visual Ridgeback mobile base. The workflow is:
     1. The cube is relocated to a configurable far position at startup.
-    2. The Ridgeback drives to the far position.
-    3. The Franka arm picks the cube (single pick-and-place cycle).
-    4. The Ridgeback drives back to the original table position.
+    2. The Ridgeback drives to near the cube (stops within arm reach).
+    3. The arm grabs the cube, then the Ridgeback carries it back.
+    4. At the original table position the Franka places the cube.
     """
 
     def __init__(
@@ -108,8 +108,10 @@ class RidgebackFrankaMobile:
         self.start_position = np.array([-start_distance, 0.0, 0.0])
         self.table_position = np.array([0.0, 0.0, 0.0])
         self.far_position = np.array([place_distance, 0.0, 0.0])
+        self.stop_near_cube_position = np.array([place_distance - 0.5, 0.0, 0.0])
         self._current_position = self.start_position.copy()
         self._move_speed = 0.005
+        self._carrying_cube = False
 
         self._franka_prim_path = None
         self._dc = None
@@ -450,11 +452,13 @@ class RidgebackFrankaMobile:
 
         State machine flow:
         INIT -> RELOCATE_CUBE_FAR (move cube to far position)
-             -> MOVE_TO_FAR (walk to far position)
-             -> WAIT_SETTLED_FAR
-             -> PICK_PLACE (single cycle at far position)
-             -> MOVE_TO_ORIGIN (walk back to original table position)
-             -> WAIT_SETTLED_ORIGIN -> DONE
+             -> MOVE_TO_NEAR_CUBE (walk to near the cube, not on top)
+             -> WAIT_SETTLED_NEAR (settle)
+             -> GRAB_CUBE (attach cube to robot)
+             -> CARRY_TO_ORIGIN (walk back carrying cube)
+             -> WAIT_SETTLED_ORIGIN (settle at table)
+             -> PLACE_AT_ORIGIN (FrankaPickPlace cycle at origin)
+             -> DONE
         """
         self._step_count += 1
         self._state_step_count += 1
@@ -474,43 +478,54 @@ class RidgebackFrankaMobile:
                 cube_height,
             ])
             self._move_cube_to_position(far_cube_pos)
-            print(f"[STATE] RELOCATE_CUBE_FAR -> MOVE_TO_FAR (cube moved to {far_cube_pos})")
-            self._state = MobileState.MOVE_TO_FAR
+            print(f"[STATE] RELOCATE_CUBE_FAR -> MOVE_TO_NEAR_CUBE "
+                  f"(cube at {far_cube_pos}, robot will stop at {self.stop_near_cube_position})")
+            self._state = MobileState.MOVE_TO_NEAR_CUBE
             self._state_step_count = 0
 
-        elif self._state == MobileState.MOVE_TO_FAR:
-            reached = self._move_towards(self.far_position)
+        elif self._state == MobileState.MOVE_TO_NEAR_CUBE:
+            reached = self._move_towards(self.stop_near_cube_position)
 
             if reached or self._state_step_count > 2000:
-                print("[STATE] MOVE_TO_FAR -> WAIT_SETTLED_FAR")
-                self._state = MobileState.WAIT_SETTLED_FAR
+                print("[STATE] MOVE_TO_NEAR_CUBE -> WAIT_SETTLED_NEAR")
+                self._state = MobileState.WAIT_SETTLED_NEAR
                 self._state_step_count = 0
                 self._settled_steps = 0
 
-        elif self._state == MobileState.WAIT_SETTLED_FAR:
+        elif self._state == MobileState.WAIT_SETTLED_NEAR:
             self._settled_steps += 1
 
             if self._settled_steps > 30:
-                print("[STATE] WAIT_SETTLED_FAR -> PICK_PLACE")
-                self._state = MobileState.PICK_PLACE
-                self._state_step_count = 0
-                self.franka_pick_place.reset()
-
-        elif self._state == MobileState.PICK_PLACE:
-            self.franka_pick_place.forward(ik_method)
-
-            if self.franka_pick_place.is_done():
-                if self._original_cube_position is not None:
-                    self._move_cube_to_position(self._original_cube_position)
-                print("[STATE] PICK_PLACE -> MOVE_TO_ORIGIN")
-                self._state = MobileState.MOVE_TO_ORIGIN
+                print("[STATE] WAIT_SETTLED_NEAR -> GRAB_CUBE")
+                self._state = MobileState.GRAB_CUBE
                 self._state_step_count = 0
 
-        elif self._state == MobileState.MOVE_TO_ORIGIN:
+        elif self._state == MobileState.GRAB_CUBE:
+            grab_pos = np.array([
+                self._current_position[0] + 0.3,
+                self._current_position[1],
+                0.3,
+            ])
+            self._move_cube_to_position(grab_pos)
+            self._carrying_cube = True
+            print("[STATE] GRAB_CUBE -> CARRY_TO_ORIGIN (cube attached to robot)")
+            self._state = MobileState.CARRY_TO_ORIGIN
+            self._state_step_count = 0
+
+        elif self._state == MobileState.CARRY_TO_ORIGIN:
             reached = self._move_towards(self.table_position)
 
-            if reached or self._state_step_count > 2000:
-                print("[STATE] MOVE_TO_ORIGIN -> WAIT_SETTLED_ORIGIN")
+            if self._carrying_cube:
+                carry_pos = np.array([
+                    self._current_position[0] + 0.3,
+                    self._current_position[1],
+                    0.3,
+                ])
+                self._move_cube_to_position(carry_pos)
+
+            if reached or self._state_step_count > 3000:
+                self._carrying_cube = False
+                print("[STATE] CARRY_TO_ORIGIN -> WAIT_SETTLED_ORIGIN")
                 self._state = MobileState.WAIT_SETTLED_ORIGIN
                 self._state_step_count = 0
                 self._settled_steps = 0
@@ -519,7 +534,18 @@ class RidgebackFrankaMobile:
             self._settled_steps += 1
 
             if self._settled_steps > 30:
-                print("[STATE] WAIT_SETTLED_ORIGIN -> DONE")
+                if self._original_cube_position is not None:
+                    self._move_cube_to_position(self._original_cube_position)
+                print("[STATE] WAIT_SETTLED_ORIGIN -> PLACE_AT_ORIGIN")
+                self._state = MobileState.PLACE_AT_ORIGIN
+                self._state_step_count = 0
+                self.franka_pick_place.reset()
+
+        elif self._state == MobileState.PLACE_AT_ORIGIN:
+            self.franka_pick_place.forward(ik_method)
+
+            if self.franka_pick_place.is_done():
+                print("[STATE] PLACE_AT_ORIGIN -> DONE")
                 self._state = MobileState.DONE
 
         if self._step_count % 200 == 0:
