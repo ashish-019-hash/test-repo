@@ -808,21 +808,6 @@ class SpotGR00TRunner(object):
             return
 
         if self.needs_reset:
-            self._timeline.stop()
-            simulation_app.update()
-            self._timeline.play()
-            simulation_app.update()
-            self._policy.reset()
-            self._ridgeback_franka.reset()
-            self._object_detected = False
-            self._pick_place_active = False
-            self._pick_place_done = False
-            self._physics_step_count = 0
-            self._query_count = 0
-            self._camera_ready = False
-            self.needs_reset = False
-            self.first_step = True
-            print("[Spot] Episode reset. Spot will start moving forward again.")
             return
 
         self._physics_step_count += 1
@@ -844,13 +829,6 @@ class SpotGR00TRunner(object):
             self._pick_place_active = True
             self._ridgeback_franka.reset()
             print("[Spot] Object detected! Triggering Ridgeback Franka pick-and-place...")
-
-        if self._pick_place_active:
-            self._ridgeback_franka.forward(self._ik_method)
-            if self._ridgeback_franka.is_done():
-                self._pick_place_active = False
-                self._pick_place_done = True
-                print("[Spot] Ridgeback Franka pick-and-place complete!")
 
         if self._object_detected or self._pick_place_active or self._pick_place_done:
             self._spot.forward(step_size, np.zeros(3))
@@ -877,8 +855,31 @@ class SpotGR00TRunner(object):
 
         while simulation_app.is_running():
             simulation_app.update()
+
             if not self._timeline.is_playing():
                 self.needs_reset = True
+                continue
+
+            if self.needs_reset:
+                self._policy.reset()
+                self._ridgeback_franka.reset()
+                self._object_detected = False
+                self._pick_place_active = False
+                self._pick_place_done = False
+                self._physics_step_count = 0
+                self._query_count = 0
+                self._camera_ready = False
+                self.needs_reset = False
+                self.first_step = True
+                print("[Spot] Episode reset. Spot will start moving forward again.")
+                continue
+
+            if self._pick_place_active:
+                self._ridgeback_franka.forward(self._ik_method)
+                if self._ridgeback_franka.is_done():
+                    self._pick_place_active = False
+                    self._pick_place_done = True
+                    print("[Spot] Ridgeback Franka pick-and-place complete!")
         return
 
     def _sub_keyboard_event(self, event, *args, **kwargs) -> bool:
