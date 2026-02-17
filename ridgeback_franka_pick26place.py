@@ -60,10 +60,13 @@ except ImportError:
 
 class MobileState(Enum):
     INIT = 0
-    MOVE_TO_TABLE = 1
+    MOVE_TO_CUBE = 1
     WAIT_SETTLED = 2
-    PICK_PLACE = 3
-    DONE = 4
+    PICK_CUBE = 3
+    RETURN_TO_START = 4
+    WAIT_SETTLED_RETURN = 5
+    PLACE_CUBE = 6
+    DONE = 7
 
 
 class RidgebackFrankaMobile:
@@ -95,6 +98,9 @@ class RidgebackFrankaMobile:
         self._franka_robot = None
         self._franka_xform = None
         self._scene_prim_originals = {}
+        self._cube_prim_path = None
+        self._cube_grip_offset = np.array([0.0, 0.0, 0.0])
+        self._pick_steps = 0
 
     def setup_mobile_base(self, stage):
         """Create the visual mobile base and configure the Franka for movement."""
@@ -123,9 +129,10 @@ class RidgebackFrankaMobile:
 
         self._discover_scene_prims(stage)
         self._apply_scene_offset(stage)
+        self._find_cube_prim(stage)
 
         print(f"[INFO] Created Ridgeback mobile base at start position {self.start_position}")
-        print(f"[INFO] Cube/table offset to x={self.cube_offset}m, total travel: {self.cube_offset:.2f}m")
+        print(f"[INFO] Cube/table offset to x={self.cube_offset}m, round-trip travel: {self.cube_offset * 2:.2f}m")
 
         return self._mobile_base_prim_path
 
@@ -156,6 +163,61 @@ class RidgebackFrankaMobile:
                 print(f"[INFO] Cached scene prim {path} at original position {orig}")
             except Exception as e:
                 print(f"[WARNING] Could not read {path}: {e}")
+
+    def _find_cube_prim(self, stage):
+        """Identify the graspable cube prim from cached scene prims."""
+        for path in self._scene_prim_originals:
+            prim = stage.GetPrimAtPath(path)
+            if prim.IsValid():
+                name = prim.GetName().lower()
+                if "cube" in name or "block" in name:
+                    self._cube_prim_path = path
+                    print(f"[INFO] Identified graspable cube prim: {path}")
+                    return
+        if self._scene_prim_originals:
+            self._cube_prim_path = next(iter(self._scene_prim_originals))
+            print(f"[INFO] Using first scene prim as cube: {self._cube_prim_path}")
+
+    def _get_cube_position(self, stage):
+        """Read the cube prim's current translate from USD."""
+        if self._cube_prim_path is None:
+            return None
+        prim = stage.GetPrimAtPath(self._cube_prim_path)
+        if not prim.IsValid():
+            return None
+        xform = UsdGeom.Xformable(prim)
+        if not xform:
+            return None
+        for op in xform.GetOrderedXformOps():
+            if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                v = op.Get()
+                return np.array([v[0], v[1], v[2]])
+        return None
+
+    def _set_cube_position(self, stage, position):
+        """Set the cube prim's translate in USD."""
+        if self._cube_prim_path is None:
+            return
+        prim = stage.GetPrimAtPath(self._cube_prim_path)
+        if not prim.IsValid():
+            return
+        xform = UsdGeom.Xformable(prim)
+        if not xform:
+            return
+        for op in xform.GetOrderedXformOps():
+            if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                op.Set(Gf.Vec3d(position[0], position[1], position[2]))
+                return
+
+    def _is_cube_lifted(self, stage):
+        """Check if the cube has been lifted above its original height."""
+        pos = self._get_cube_position(stage)
+        if pos is None:
+            return False
+        orig = self._scene_prim_originals.get(self._cube_prim_path)
+        if orig is None:
+            return False
+        return pos[2] > orig[2] + 0.05
 
     def _apply_scene_offset(self, stage):
         """Set scene prims to original_position + cube_offset along x. Idempotent."""
@@ -363,17 +425,18 @@ class RidgebackFrankaMobile:
         """Execute one step of the mobile manipulation."""
         self._step_count += 1
         self._state_step_count += 1
+        stage = omni.usd.get_context().get_stage()
 
         if self._state == MobileState.INIT:
-            print("[STATE] INIT -> MOVE_TO_TABLE")
-            self._state = MobileState.MOVE_TO_TABLE
+            print("[STATE] INIT -> MOVE_TO_CUBE")
+            self._state = MobileState.MOVE_TO_CUBE
             self._state_step_count = 0
 
-        elif self._state == MobileState.MOVE_TO_TABLE:
+        elif self._state == MobileState.MOVE_TO_CUBE:
             reached = self._move_towards(self.table_position)
 
             if reached or self._state_step_count > 2000:
-                print("[STATE] MOVE_TO_TABLE -> WAIT_SETTLED")
+                print("[STATE] MOVE_TO_CUBE -> WAIT_SETTLED")
                 self._state = MobileState.WAIT_SETTLED
                 self._state_step_count = 0
                 self._settled_steps = 0
@@ -382,17 +445,87 @@ class RidgebackFrankaMobile:
             self._settled_steps += 1
 
             if self._settled_steps > 30:
-                print("[STATE] WAIT_SETTLED -> PICK_PLACE")
-                self._state = MobileState.PICK_PLACE
+                print("[STATE] WAIT_SETTLED -> PICK_CUBE")
+                self._state = MobileState.PICK_CUBE
                 self._state_step_count = 0
+                self._pick_steps = 0
                 self.franka_pick_place.reset()
-                self._apply_scene_offset(omni.usd.get_context().get_stage())
+                self._apply_scene_offset(stage)
 
-        elif self._state == MobileState.PICK_PLACE:
+        elif self._state == MobileState.PICK_CUBE:
             self.franka_pick_place.forward(ik_method)
+            self._pick_steps += 1
 
-            if self.franka_pick_place.is_done():
-                print("[STATE] PICK_PLACE -> DONE")
+            cube_lifted = self._is_cube_lifted(stage)
+            pick_done = self.franka_pick_place.is_done()
+
+            if cube_lifted or (self._pick_steps > 800 and not pick_done):
+                cube_pos = self._get_cube_position(stage)
+                if cube_pos is not None:
+                    self._cube_grip_offset = cube_pos - np.array([
+                        self._current_position[0],
+                        self._current_position[1],
+                        0.0
+                    ])
+                print(f"[STATE] PICK_CUBE -> RETURN_TO_START (picked after {self._pick_steps} steps)")
+                self._state = MobileState.RETURN_TO_START
+                self._state_step_count = 0
+            elif pick_done:
+                cube_pos = self._get_cube_position(stage)
+                if cube_pos is not None:
+                    self._cube_grip_offset = cube_pos - np.array([
+                        self._current_position[0],
+                        self._current_position[1],
+                        0.0
+                    ])
+                print(f"[STATE] PICK_CUBE -> RETURN_TO_START (full cycle in {self._pick_steps} steps)")
+                self._state = MobileState.RETURN_TO_START
+                self._state_step_count = 0
+
+        elif self._state == MobileState.RETURN_TO_START:
+            reached = self._move_towards(self.start_position)
+
+            cube_pos = np.array([
+                self._current_position[0] + self._cube_grip_offset[0],
+                self._current_position[1] + self._cube_grip_offset[1],
+                self._cube_grip_offset[2]
+            ])
+            self._set_cube_position(stage, cube_pos)
+
+            if reached or self._state_step_count > 2000:
+                print("[STATE] RETURN_TO_START -> WAIT_SETTLED_RETURN")
+                self._state = MobileState.WAIT_SETTLED_RETURN
+                self._state_step_count = 0
+                self._settled_steps = 0
+
+        elif self._state == MobileState.WAIT_SETTLED_RETURN:
+            self._settled_steps += 1
+
+            cube_pos = np.array([
+                self._current_position[0] + self._cube_grip_offset[0],
+                self._current_position[1] + self._cube_grip_offset[1],
+                self._cube_grip_offset[2]
+            ])
+            self._set_cube_position(stage, cube_pos)
+
+            if self._settled_steps > 30:
+                print("[STATE] WAIT_SETTLED_RETURN -> PLACE_CUBE")
+                self._state = MobileState.PLACE_CUBE
+                self._state_step_count = 0
+                self._place_steps = 0
+
+        elif self._state == MobileState.PLACE_CUBE:
+            self._place_steps += 1
+            descent_rate = 0.002
+            cube_pos = self._get_cube_position(stage)
+            if cube_pos is not None and cube_pos[2] > 0.05:
+                cube_pos[2] -= descent_rate
+                self._set_cube_position(stage, cube_pos)
+            elif self._place_steps > 50:
+                orig = self._scene_prim_originals.get(self._cube_prim_path)
+                if orig is not None:
+                    self._set_cube_position(stage, np.array([0.0, orig[1], orig[2]]))
+                print("[STATE] PLACE_CUBE -> DONE")
                 self._state = MobileState.DONE
 
         if self._step_count % 200 == 0:
@@ -409,7 +542,7 @@ def main():
     print("(Warehouse Environment)")
     print("=" * 60)
     print(f"\nCube/table placed at +{args.cube_offset}m along x-axis.")
-    print("Ridgeback starts at origin, drives to the cube, then Franka performs pick-and-place.")
+    print("Ridgeback drives to cube, picks it, returns to origin, and places it.")
     print(f"IK method: {args.ik_method}")
     print("=" * 60)
 
