@@ -627,6 +627,9 @@ class SpotGR00TRunner(object):
         ik_method="damped-least-squares",
         spot_base_dir=None,
     ):
+        self._physics_dt = physics_dt
+        self._render_dt = render_dt
+
         self._world = World(
             stage_units_in_meters=1.0,
             physics_dt=physics_dt,
@@ -698,7 +701,7 @@ class SpotGR00TRunner(object):
 
     def _add_cube_obstacle(self):
         from pxr import UsdGeom, UsdPhysics, Gf
-        stage = self._world.stage
+        stage = omni.usd.get_context().get_stage()
         cube_path = "/World/ObstacleCube"
         cube_prim = stage.DefinePrim(cube_path, "Cube")
         UsdGeom.Xformable(cube_prim).AddTranslateOp().Set(Gf.Vec3d(4.0, 0.0, 0.15))
@@ -807,9 +810,11 @@ class SpotGR00TRunner(object):
         self._sub_keyboard = self._input.subscribe_to_keyboard_events(
             self._keyboard, self._sub_keyboard_event
         )
-        self._world.add_physics_callback("spot_groot_forward", callback_fn=self.on_physics_step)
+        self._timeline = omni.timeline.get_timeline_interface()
 
-    def on_physics_step(self, step_size) -> None:
+    def on_physics_step(self) -> None:
+        step_size = self._render_dt
+
         if self.first_step:
             self._spot.initialize()
             self._camera.initialize()
@@ -823,7 +828,6 @@ class SpotGR00TRunner(object):
             return
 
         if self.needs_reset:
-            self._world.reset(True)
             self._policy.reset()
             self._ridgeback_franka.reset()
             self._ridgeback_initialized = True
@@ -873,10 +877,15 @@ class SpotGR00TRunner(object):
         print("=" * 60)
         print("")
 
+        self._timeline.play()
+        simulation_app.update()
+
         while simulation_app.is_running():
-            self._world.step(render=True)
-            if self._world.is_stopped():
+            simulation_app.update()
+            if not self._timeline.is_playing():
                 self.needs_reset = True
+                continue
+            self.on_physics_step()
         return
 
     def _sub_keyboard_event(self, event, *args, **kwargs) -> bool:
@@ -941,7 +950,8 @@ def main():
     runner.setup()
     simulation_app.update()
     runner.run()
-    simulation_app.close()
+    if simulation_app.is_running():
+        simulation_app.close()
 
 
 if __name__ == "__main__":
