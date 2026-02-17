@@ -641,19 +641,17 @@ class SpotGR00TRunner(object):
         asset_path = assets_root_path + "/Isaac/Environments/Simple_Warehouse/warehouse_multiple_shelves.usd"
         prim.GetReferences().AddReference(asset_path)
 
-        if spot_base_dir is None:
-            spot_base_dir = str(Path(__file__).resolve().parent.parent)
-        spot_base = Path(spot_base_dir)
+        if spot_base_dir is not None:
+            spot_module_dir = str(Path(spot_base_dir).resolve())
+            if spot_module_dir not in sys.path:
+                sys.path.insert(0, spot_module_dir)
+                print(f"[Spot] Added {spot_module_dir} to sys.path")
 
-        spot_module_dir = str(spot_base)
-        if spot_module_dir not in sys.path:
-            sys.path.insert(0, spot_module_dir)
-            print(f"[Spot] Added {spot_module_dir} to sys.path")
-
+        BASE_DIR = Path(__file__).resolve().parent.parent
         from spot_policy import SpotFlatTerrainPolicy
-        policy_path = os.path.join(spot_base, "policies/spot/models", "spot_policy.pt")
-        policy_params_path = os.path.join(spot_base, "policies/spot/params", "env.yaml")
-        usd_path = os.path.join(spot_base, "assets", "spot.usd")
+        policy_path = os.path.join(BASE_DIR, "policies/spot/models", "spot_policy.pt")
+        policy_params_path = os.path.join(BASE_DIR, "policies/spot/params", "env.yaml")
+        usd_path = os.path.join(BASE_DIR, "assets", "spot.usd")
 
         self._spot = SpotFlatTerrainPolicy(
             prim_path="/World/Spot",
