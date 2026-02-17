@@ -29,14 +29,14 @@ parser.add_argument(
 parser.add_argument(
     "--start-distance",
     type=float,
-    default=5.0,
-    help="Distance in meters from table where Ridgeback starts",
+    default=1.0,
+    help="Distance in meters behind the origin where Ridgeback starts",
 )
 parser.add_argument(
-    "--place-offset",
+    "--cube-distance",
     type=float,
-    default=2.0,
-    help="Offset in meters along x-axis to place the cube further from origin",
+    default=5.0,
+    help="Distance in meters along x-axis to place the cube further from origin",
 )
 args, _ = parser.parse_known_args()
 
@@ -80,10 +80,10 @@ class RidgebackFrankaMobile:
     arm performs pick-and-place.
     """
 
-    def __init__(self, franka_pick_place: FrankaPickPlace, start_distance: float = 5.0, place_offset: float = 2.0):
+    def __init__(self, franka_pick_place: FrankaPickPlace, start_distance: float = 1.0, cube_distance: float = 5.0):
         self.franka_pick_place = franka_pick_place
         self.start_distance = start_distance
-        self.place_offset = place_offset
+        self.cube_distance = cube_distance
 
         self._mobile_base_prim_path = "/World/RidgebackBase"
         self._state = MobileState.INIT
@@ -91,8 +91,8 @@ class RidgebackFrankaMobile:
         self._state_step_count = 0
         self._settled_steps = 0
 
-        self.start_position = np.array([-(start_distance + place_offset), 0.0, 0.0])
-        self.table_position = np.array([0.0, 0.0, 0.0])
+        self.start_position = np.array([-start_distance, 0.0, 0.0])
+        self.table_position = np.array([cube_distance, 0.0, 0.0])
         self._current_position = self.start_position.copy()
         self._move_speed = 0.01
 
@@ -127,8 +127,8 @@ class RidgebackFrankaMobile:
 
         self._set_franka_usd_position(stage, self.start_position)
 
-        if self.place_offset != 0.0:
-            self._offset_scene_objects(stage, self.place_offset)
+        if self.cube_distance != 0.0:
+            self._offset_scene_objects(stage, self.cube_distance)
 
         print(f"[INFO] Created Ridgeback mobile base at start position {self.start_position}")
         print(f"[INFO] Total travel distance: {np.linalg.norm(self.table_position - self.start_position):.2f}m")
@@ -356,7 +356,7 @@ class RidgebackFrankaMobile:
         elif self._state == MobileState.MOVE_TO_TABLE:
             reached = self._move_towards(self.table_position)
 
-            if reached or self._state_step_count > 1000:
+            if reached or self._state_step_count > 2000:
                 print("[STATE] MOVE_TO_TABLE -> WAIT_SETTLED")
                 self._state = MobileState.WAIT_SETTLED
                 self._state_step_count = 0
@@ -391,9 +391,10 @@ def main():
     print("Ridgeback + Franka Mobile Manipulator Pick-and-Place Demo")
     print("(Warehouse Environment)")
     print("=" * 60)
-    total_travel = args.start_distance + args.place_offset
-    print(f"\nRidgeback starts {total_travel:.1f}m from the table (base distance={args.start_distance}m + place offset={args.place_offset}m),")
-    print("drives to the table, then Franka performs pick-and-place.")
+    total_travel = args.start_distance + args.cube_distance
+    print(f"\nCube placed at {args.cube_distance}m along x-axis from origin.")
+    print(f"Ridgeback starts at -{args.start_distance}m, total travel distance: {total_travel:.1f}m.")
+    print("Mobile base drives to the cube, then Franka performs pick-and-place.")
     print(f"IK method: {args.ik_method}")
     print("=" * 60)
 
@@ -418,7 +419,7 @@ def main():
 
     stage = omni.usd.get_context().get_stage()
 
-    ridgeback_franka = RidgebackFrankaMobile(franka_pick_place, start_distance=args.start_distance, place_offset=args.place_offset)
+    ridgeback_franka = RidgebackFrankaMobile(franka_pick_place, start_distance=args.start_distance, cube_distance=args.cube_distance)
     ridgeback_franka.setup_mobile_base(stage)
     simulation_app.update()
 
