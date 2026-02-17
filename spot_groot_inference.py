@@ -334,7 +334,7 @@ class RidgebackFrankaMobile:
                 xform = UsdGeom.Xformable(prim)
                 if not xform:
                     continue
-                target = Gf.Vec3d(orig[0] + self.cube_offset, orig[1], orig[2])
+                target = Gf.Vec3d(self.cube_offset, 0.0, orig[2])
                 applied = False
                 for op in xform.GetOrderedXformOps():
                     if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
