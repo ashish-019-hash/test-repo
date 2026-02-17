@@ -10,8 +10,9 @@ This script combines:
 Extended behavior:
 - The cube is relocated to a configurable far position at the start.
 - The Ridgeback walks to near the cube (stops within arm reach, not on top).
-- The arm grabs the cube, then the Ridgeback carries it back to the origin.
-- At the original table position the arm places the cube down.
+- The Franka arm reaches down, grasps the cube, and lifts it.
+- The Ridgeback carries the cube back to the original table position.
+- The Franka arm lowers the cube, releases it, and retreats.
 """
 
 from __future__ import annotations
@@ -67,15 +68,22 @@ except ImportError:
     print("[WARNING] omni.isaac.core not fully available")
 
 
+_ARM_HOME = np.array([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785])
+_ARM_REACH_DOWN = np.array([0.0, 0.5, 0.0, -1.2, 0.0, 2.0, 0.785])
+_FINGER_OPEN = 0.04
+_FINGER_CLOSED = 0.001
+_ANIM_STEPS = 60
+
+
 class MobileState(Enum):
     INIT = 0
     RELOCATE_CUBE_FAR = 1
     MOVE_TO_NEAR_CUBE = 2
     WAIT_SETTLED_NEAR = 3
-    GRAB_CUBE = 4
+    ARM_PICK = 4
     CARRY_TO_ORIGIN = 5
-    WAIT_SETTLED_ORIGIN = 6
-    PLACE_AT_ORIGIN = 7
+    WAIT_AT_ORIGIN = 6
+    ARM_PLACE = 7
     DONE = 8
 
 
@@ -85,8 +93,9 @@ class RidgebackFrankaMobile:
     Wraps FrankaPickPlace with a visual Ridgeback mobile base. The workflow is:
     1. The cube is relocated to a configurable far position at startup.
     2. The Ridgeback drives to near the cube (stops within arm reach).
-    3. The arm grabs the cube, then the Ridgeback carries it back.
-    4. At the original table position the Franka places the cube.
+    3. The Franka arm reaches down, grasps the cube, and lifts it.
+    4. The Ridgeback carries the cube back to the original table position.
+    5. The Franka arm lowers the cube, releases it, and retreats.
     """
 
     def __init__(
@@ -112,6 +121,8 @@ class RidgebackFrankaMobile:
         self._current_position = self.start_position.copy()
         self._move_speed = 0.005
         self._carrying_cube = False
+        self._arm_phase = 0
+        self._arm_anim_step = 0
 
         self._franka_prim_path = None
         self._dc = None
@@ -280,6 +291,30 @@ class RidgebackFrankaMobile:
 
         print(f"[INFO] Moved cube to position ({position[0]:.2f}, {position[1]:.2f}, {cube_height:.3f})")
 
+    def _set_arm_dof_targets(self, arm_positions, gripper_value):
+        """Set Franka arm joint position targets and gripper opening via DC API."""
+        if self._dc is None or self._articulation_handle is None:
+            return False
+        try:
+            dof_count = self._dc.get_articulation_dof_count(self._articulation_handle)
+            dof_states = self._dc.get_articulation_dof_states(
+                self._articulation_handle, _dynamic_control.STATE_POS
+            )
+            targets = [dof_states.pos[i] for i in range(dof_count)]
+            if dof_count >= 9:
+                arm_start = dof_count - 9
+                for i in range(min(7, len(arm_positions))):
+                    targets[arm_start + i] = float(arm_positions[i])
+                targets[arm_start + 7] = float(gripper_value)
+                targets[arm_start + 8] = float(gripper_value)
+            self._dc.set_articulation_dof_position_targets(
+                self._articulation_handle, targets
+            )
+            return True
+        except Exception as e:
+            print(f"[WARNING] Could not set arm DOF targets: {e}")
+            return False
+
     def _set_franka_floating_base(self, stage):
         """Configure the Franka articulation to have a floating base."""
         if self._franka_prim_path is None:
@@ -397,6 +432,9 @@ class RidgebackFrankaMobile:
         self._step_count = 0
         self._state_step_count = 0
         self._settled_steps = 0
+        self._carrying_cube = False
+        self._arm_phase = 0
+        self._arm_anim_step = 0
         self._current_position = self.start_position.copy()
 
         if CORE_AVAILABLE and self._franka_prim_path is not None:
@@ -454,10 +492,10 @@ class RidgebackFrankaMobile:
         INIT -> RELOCATE_CUBE_FAR (move cube to far position)
              -> MOVE_TO_NEAR_CUBE (walk to near the cube, not on top)
              -> WAIT_SETTLED_NEAR (settle)
-             -> GRAB_CUBE (attach cube to robot)
+             -> ARM_PICK (reach down, grasp, lift via joint control)
              -> CARRY_TO_ORIGIN (walk back carrying cube)
-             -> WAIT_SETTLED_ORIGIN (settle at table)
-             -> PLACE_AT_ORIGIN (FrankaPickPlace cycle at origin)
+             -> WAIT_AT_ORIGIN (settle at table)
+             -> ARM_PLACE (lower, release, retreat via joint control)
              -> DONE
         """
         self._step_count += 1
@@ -496,21 +534,53 @@ class RidgebackFrankaMobile:
             self._settled_steps += 1
 
             if self._settled_steps > 30:
-                print("[STATE] WAIT_SETTLED_NEAR -> GRAB_CUBE")
-                self._state = MobileState.GRAB_CUBE
+                print("[STATE] WAIT_SETTLED_NEAR -> ARM_PICK")
+                self._state = MobileState.ARM_PICK
+                self._arm_phase = 0
+                self._arm_anim_step = 0
                 self._state_step_count = 0
 
-        elif self._state == MobileState.GRAB_CUBE:
-            grab_pos = np.array([
-                self._current_position[0] + 0.3,
-                self._current_position[1],
-                0.3,
-            ])
-            self._move_cube_to_position(grab_pos)
-            self._carrying_cube = True
-            print("[STATE] GRAB_CUBE -> CARRY_TO_ORIGIN (cube attached to robot)")
-            self._state = MobileState.CARRY_TO_ORIGIN
-            self._state_step_count = 0
+        elif self._state == MobileState.ARM_PICK:
+            self._arm_anim_step += 1
+
+            if self._arm_phase == 0:
+                alpha = min(1.0, self._arm_anim_step / _ANIM_STEPS)
+                arm_pos = (1.0 - alpha) * _ARM_HOME + alpha * _ARM_REACH_DOWN
+                self._set_arm_dof_targets(arm_pos, _FINGER_OPEN)
+                if alpha >= 1.0:
+                    self._arm_phase = 1
+                    self._arm_anim_step = 0
+
+            elif self._arm_phase == 1:
+                alpha = min(1.0, self._arm_anim_step / 30)
+                grip = _FINGER_OPEN * (1.0 - alpha) + _FINGER_CLOSED * alpha
+                self._set_arm_dof_targets(_ARM_REACH_DOWN, grip)
+                if alpha >= 1.0:
+                    self._carrying_cube = True
+                    carry_pos = np.array([
+                        self._current_position[0] + 0.3,
+                        self._current_position[1],
+                        0.3,
+                    ])
+                    self._move_cube_to_position(carry_pos)
+                    self._arm_phase = 2
+                    self._arm_anim_step = 0
+
+            elif self._arm_phase == 2:
+                alpha = min(1.0, self._arm_anim_step / _ANIM_STEPS)
+                arm_pos = (1.0 - alpha) * _ARM_REACH_DOWN + alpha * _ARM_HOME
+                self._set_arm_dof_targets(arm_pos, _FINGER_CLOSED)
+                if self._carrying_cube:
+                    carry_pos = np.array([
+                        self._current_position[0] + 0.3,
+                        self._current_position[1],
+                        0.3 + 0.3 * alpha,
+                    ])
+                    self._move_cube_to_position(carry_pos)
+                if alpha >= 1.0:
+                    print("[STATE] ARM_PICK -> CARRY_TO_ORIGIN")
+                    self._state = MobileState.CARRY_TO_ORIGIN
+                    self._state_step_count = 0
 
         elif self._state == MobileState.CARRY_TO_ORIGIN:
             reached = self._move_towards(self.table_position)
@@ -519,34 +589,66 @@ class RidgebackFrankaMobile:
                 carry_pos = np.array([
                     self._current_position[0] + 0.3,
                     self._current_position[1],
-                    0.3,
+                    0.6,
                 ])
                 self._move_cube_to_position(carry_pos)
 
             if reached or self._state_step_count > 3000:
-                self._carrying_cube = False
-                print("[STATE] CARRY_TO_ORIGIN -> WAIT_SETTLED_ORIGIN")
-                self._state = MobileState.WAIT_SETTLED_ORIGIN
+                print("[STATE] CARRY_TO_ORIGIN -> WAIT_AT_ORIGIN")
+                self._state = MobileState.WAIT_AT_ORIGIN
                 self._state_step_count = 0
                 self._settled_steps = 0
 
-        elif self._state == MobileState.WAIT_SETTLED_ORIGIN:
+        elif self._state == MobileState.WAIT_AT_ORIGIN:
             self._settled_steps += 1
 
             if self._settled_steps > 30:
-                if self._original_cube_position is not None:
-                    self._move_cube_to_position(self._original_cube_position)
-                print("[STATE] WAIT_SETTLED_ORIGIN -> PLACE_AT_ORIGIN")
-                self._state = MobileState.PLACE_AT_ORIGIN
+                print("[STATE] WAIT_AT_ORIGIN -> ARM_PLACE")
+                self._state = MobileState.ARM_PLACE
+                self._arm_phase = 0
+                self._arm_anim_step = 0
                 self._state_step_count = 0
-                self.franka_pick_place.reset()
 
-        elif self._state == MobileState.PLACE_AT_ORIGIN:
-            self.franka_pick_place.forward(ik_method)
+        elif self._state == MobileState.ARM_PLACE:
+            self._arm_anim_step += 1
 
-            if self.franka_pick_place.is_done():
-                print("[STATE] PLACE_AT_ORIGIN -> DONE")
-                self._state = MobileState.DONE
+            place_height = 0.025
+            if self._original_cube_position is not None:
+                place_height = self._original_cube_position[2]
+
+            if self._arm_phase == 0:
+                alpha = min(1.0, self._arm_anim_step / _ANIM_STEPS)
+                arm_pos = (1.0 - alpha) * _ARM_HOME + alpha * _ARM_REACH_DOWN
+                self._set_arm_dof_targets(arm_pos, _FINGER_CLOSED)
+                if self._carrying_cube:
+                    carry_pos = np.array([
+                        self._current_position[0] + 0.3,
+                        self._current_position[1],
+                        0.6 * (1.0 - alpha) + place_height * alpha,
+                    ])
+                    self._move_cube_to_position(carry_pos)
+                if alpha >= 1.0:
+                    self._arm_phase = 1
+                    self._arm_anim_step = 0
+
+            elif self._arm_phase == 1:
+                alpha = min(1.0, self._arm_anim_step / 30)
+                grip = _FINGER_CLOSED * (1.0 - alpha) + _FINGER_OPEN * alpha
+                self._set_arm_dof_targets(_ARM_REACH_DOWN, grip)
+                if alpha >= 1.0:
+                    self._carrying_cube = False
+                    if self._original_cube_position is not None:
+                        self._move_cube_to_position(self._original_cube_position)
+                    self._arm_phase = 2
+                    self._arm_anim_step = 0
+
+            elif self._arm_phase == 2:
+                alpha = min(1.0, self._arm_anim_step / _ANIM_STEPS)
+                arm_pos = (1.0 - alpha) * _ARM_REACH_DOWN + alpha * _ARM_HOME
+                self._set_arm_dof_targets(arm_pos, _FINGER_OPEN)
+                if alpha >= 1.0:
+                    print("[STATE] ARM_PLACE -> DONE")
+                    self._state = MobileState.DONE
 
         if self._step_count % 200 == 0:
             print(f"[DEBUG] Step {self._step_count}, State: {self._state.name}")
