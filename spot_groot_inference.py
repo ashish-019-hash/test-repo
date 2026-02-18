@@ -109,8 +109,7 @@ DEFAULT_CAMERA_PRIM = "/World/Spot/body/frontleft_fisheye"
 
 FORWARD_SPEED = 0.5
 QUERY_INTERVAL_SECONDS = 0.3
-WARMUP_SECONDS = 10.0
-DETECTION_CONFIRM_COUNT = 2
+WARMUP_SECONDS = 3.0
 
 
 class MobileState(Enum):
@@ -703,7 +702,6 @@ class SpotGR00TRunner(object):
 
         self._pick_place_active = False
         self._pick_place_done = False
-        self._consecutive_detections = 0
 
         self.needs_reset = False
         self.first_step = True
@@ -779,13 +777,9 @@ class SpotGR00TRunner(object):
                 print(f"[GR00T Query #{self._query_count}] ref_novelty={ref_nov:.4f}, frame_novelty={frame_nov:.4f}")
 
             if detected:
-                self._consecutive_detections += 1
-                print(f"[GR00T Query #{self._query_count}] Detection {self._consecutive_detections}/{DETECTION_CONFIRM_COUNT}")
-                if self._consecutive_detections >= DETECTION_CONFIRM_COUNT:
-                    self._object_detected = True
-                    print(f">>> [GR00T Query #{self._query_count}] OBJECT CONFIRMED -> STOPPING <<<")
+                self._object_detected = True
+                print(f">>> [GR00T Query #{self._query_count}] OBJECT DETECTED -> STOPPING <<<")
             else:
-                self._consecutive_detections = 0
                 self._object_detected = False
                 print(f"[GR00T Query #{self._query_count}] No object -> MOVING")
 
@@ -872,7 +866,6 @@ class SpotGR00TRunner(object):
                 self._object_detected = False
                 self._pick_place_active = False
                 self._pick_place_done = False
-                self._consecutive_detections = 0
                 self._physics_step_count = 0
                 self._query_count = 0
                 self._camera_ready = False
@@ -891,7 +884,6 @@ class SpotGR00TRunner(object):
                     self._start_time = time.time()
                     self._query_count = 0
                     self._camera_ready = False
-                    self._consecutive_detections = 0
                     stage = omni.usd.get_context().get_stage()
                     spot_prim = stage.GetPrimAtPath("/World/Spot")
                     if spot_prim.IsValid():
