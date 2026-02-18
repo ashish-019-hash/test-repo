@@ -897,8 +897,8 @@ class SpotGR00TRunner(object):
         return True
 
 
-def _restyle_cube_as_package(stage):
-    """Restyle FrankaPickPlace's default cube as a realistic warehouse cardboard box."""
+def _restyle_cube_as_pipe(stage):
+    """Hide FrankaPickPlace's cube and overlay a visible exhaust pipe (cylinder) child."""
     from pxr import UsdShade, Sdf
     for prim in stage.Traverse():
         path = str(prim.GetPath())
@@ -910,27 +910,29 @@ def _restyle_cube_as_package(stage):
         if not any(kw in name for kw in ["cube", "block", "target", "object"]):
             continue
 
-        xform = UsdGeom.Xformable(prim)
-        for op in xform.GetOrderedXformOps():
-            if op.GetOpType() == UsdGeom.XformOp.TypeScale:
-                s = op.Get()
-                op.Set(Gf.Vec3f(s[0] * 0.8, s[1] * 0.8, s[2] * 1.5))
-                break
+        UsdGeom.Imageable(prim).GetPurposeAttr().Set("guide")
 
-        mat_path = f"{path}/CardboardMaterial"
+        pipe_path = f"{path}/ExhaustPipeVisual"
+        pipe = UsdGeom.Cylinder.Define(stage, pipe_path)
+        pipe.GetRadiusAttr().Set(0.4)
+        pipe.GetHeightAttr().Set(2.0)
+        pipe.GetAxisAttr().Set("Y")
+        pipe.GetDisplayColorAttr().Set([Gf.Vec3f(0.45, 0.25, 0.12)])
+        UsdGeom.Imageable(pipe.GetPrim()).GetPurposeAttr().Set("default")
+
+        mat_path = f"{pipe_path}/PipeMaterial"
         material = UsdShade.Material.Define(stage, mat_path)
         shader_path = f"{mat_path}/Shader"
         shader = UsdShade.Shader.Define(stage, shader_path)
         shader.CreateIdAttr("OmniPBR")
-        shader.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.72, 0.70, 0.68))
-        shader.CreateInput("reflection_roughness_constant", Sdf.ValueTypeNames.Float).Set(0.9)
-        shader.CreateInput("metallic_constant", Sdf.ValueTypeNames.Float).Set(0.0)
-        shader.CreateInput("specular_level", Sdf.ValueTypeNames.Float).Set(0.05)
+        shader.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.45, 0.25, 0.12))
+        shader.CreateInput("reflection_roughness_constant", Sdf.ValueTypeNames.Float).Set(0.65)
+        shader.CreateInput("metallic_constant", Sdf.ValueTypeNames.Float).Set(0.7)
+        shader.CreateInput("specular_level", Sdf.ValueTypeNames.Float).Set(0.3)
         material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
-        UsdShade.MaterialBindingAPI.Apply(prim).Bind(material)
+        UsdShade.MaterialBindingAPI.Apply(pipe.GetPrim()).Bind(material)
 
-        UsdGeom.Cube(prim).GetDisplayColorAttr().Set([Gf.Vec3f(0.72, 0.70, 0.68)])
-        print(f"[INFO] Restyled {path} as concrete block with OmniPBR material")
+        print(f"[INFO] Hidden {path} cube, added exhaust pipe visual at {pipe_path}")
         return
 
 
@@ -965,7 +967,7 @@ def main():
 
     franka_pick_place = FrankaPickPlace()
     franka_pick_place.setup_scene()
-    _restyle_cube_as_package(omni.usd.get_context().get_stage())
+    _restyle_cube_as_pipe(omni.usd.get_context().get_stage())
     simulation_app.update()
 
     runner = SpotGR00TRunner(
