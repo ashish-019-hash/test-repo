@@ -897,6 +897,28 @@ class SpotGR00TRunner(object):
         return True
 
 
+def _replace_cube_with_pipe(stage):
+    """Replace FrankaPickPlace's default cube with a pipe (cylinder) visual."""
+    for prim in stage.Traverse():
+        path = str(prim.GetPath())
+        if any(skip in path for skip in ["/Franka", "/Warehouse", "/Spot", "/Ridgeback"]):
+            continue
+        if not prim.IsA(UsdGeom.Cube):
+            continue
+        name = prim.GetName().lower()
+        if not any(kw in name for kw in ["cube", "block", "target", "object"]):
+            continue
+
+        stage.DefinePrim(path, "Cylinder")
+        cyl = UsdGeom.Cylinder(stage.GetPrimAtPath(path))
+        cyl.GetRadiusAttr().Set(0.8)
+        cyl.GetHeightAttr().Set(2.5)
+        cyl.GetAxisAttr().Set("Y")
+        cyl.GetDisplayColorAttr().Set([Gf.Vec3f(0.55, 0.28, 0.15)])
+        print(f"[INFO] Replaced {path} with exhaust pipe (cylinder)")
+        return
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Spot + GR00T N1 Object Detection with Ridgeback Franka Pick-and-Place"
@@ -928,6 +950,7 @@ def main():
 
     franka_pick_place = FrankaPickPlace()
     franka_pick_place.setup_scene()
+    _replace_cube_with_pipe(omni.usd.get_context().get_stage())
     simulation_app.update()
 
     runner = SpotGR00TRunner(
