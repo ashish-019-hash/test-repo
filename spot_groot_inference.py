@@ -922,8 +922,8 @@ def _restyle_cube_as_pipe(stage):
 
         cyl_path = f"{path}/CylinderVisual"
         cyl = UsdGeom.Cylinder.Define(stage, cyl_path)
-        cyl.GetRadiusAttr().Set(0.65)
-        cyl.GetHeightAttr().Set(1.8)
+        cyl.GetRadiusAttr().Set(1.0)
+        cyl.GetHeightAttr().Set(2.5)
         cyl.GetAxisAttr().Set("Z")
         cyl.GetDisplayColorAttr().Set([Gf.Vec3f(0.45, 0.25, 0.12)])
 
