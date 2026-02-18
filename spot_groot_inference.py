@@ -914,7 +914,7 @@ def _restyle_cube_as_package(stage):
         for op in xform.GetOrderedXformOps():
             if op.GetOpType() == UsdGeom.XformOp.TypeScale:
                 s = op.Get()
-                op.Set(Gf.Vec3f(s[0] * 1.3, s[1] * 0.9, s[2] * 0.7))
+                op.Set(Gf.Vec3f(s[0] * 2.0, s[1] * 1.6, s[2] * 1.3))
                 break
 
         mat_path = f"{path}/CardboardMaterial"
