@@ -897,8 +897,8 @@ class SpotGR00TRunner(object):
         return True
 
 
-def _replace_cube_with_pipe(stage):
-    """Replace FrankaPickPlace's default cube with a pipe (cylinder) visual."""
+def _restyle_cube_as_package(stage):
+    """Restyle FrankaPickPlace's default cube to look like a small warehouse package."""
     for prim in stage.Traverse():
         path = str(prim.GetPath())
         if any(skip in path for skip in ["/Franka", "/Warehouse", "/Spot", "/Ridgeback"]):
@@ -909,13 +909,18 @@ def _replace_cube_with_pipe(stage):
         if not any(kw in name for kw in ["cube", "block", "target", "object"]):
             continue
 
-        stage.DefinePrim(path, "Cylinder")
-        cyl = UsdGeom.Cylinder(stage.GetPrimAtPath(path))
-        cyl.GetRadiusAttr().Set(0.8)
-        cyl.GetHeightAttr().Set(2.5)
-        cyl.GetAxisAttr().Set("Y")
-        cyl.GetDisplayColorAttr().Set([Gf.Vec3f(0.55, 0.28, 0.15)])
-        print(f"[INFO] Replaced {path} with exhaust pipe (cylinder)")
+        cube = UsdGeom.Cube(prim)
+        xform = UsdGeom.Xformable(prim)
+        has_scale = False
+        for op in xform.GetOrderedXformOps():
+            if op.GetOpType() == UsdGeom.XformOp.TypeScale:
+                op.Set(Gf.Vec3f(1.2, 0.8, 0.6))
+                has_scale = True
+                break
+        if not has_scale:
+            xform.AddScaleOp().Set(Gf.Vec3f(1.2, 0.8, 0.6))
+        cube.GetDisplayColorAttr().Set([Gf.Vec3f(0.55, 0.36, 0.18)])
+        print(f"[INFO] Restyled {path} as warehouse package (brown rectangular box)")
         return
 
 
@@ -950,7 +955,7 @@ def main():
 
     franka_pick_place = FrankaPickPlace()
     franka_pick_place.setup_scene()
-    _replace_cube_with_pipe(omni.usd.get_context().get_stage())
+    _restyle_cube_as_package(omni.usd.get_context().get_stage())
     simulation_app.update()
 
     runner = SpotGR00TRunner(
