@@ -914,7 +914,7 @@ def _restyle_cube_as_package(stage):
         for op in xform.GetOrderedXformOps():
             if op.GetOpType() == UsdGeom.XformOp.TypeScale:
                 s = op.Get()
-                op.Set(Gf.Vec3f(s[0] * 2.0, s[1] * 1.6, s[2] * 1.3))
+                op.Set(Gf.Vec3f(s[0] * 0.8, s[1] * 0.8, s[2] * 1.5))
                 break
 
         mat_path = f"{path}/CardboardMaterial"
@@ -922,15 +922,15 @@ def _restyle_cube_as_package(stage):
         shader_path = f"{mat_path}/Shader"
         shader = UsdShade.Shader.Define(stage, shader_path)
         shader.CreateIdAttr("OmniPBR")
-        shader.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.55, 0.38, 0.22))
-        shader.CreateInput("reflection_roughness_constant", Sdf.ValueTypeNames.Float).Set(0.85)
+        shader.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.72, 0.70, 0.68))
+        shader.CreateInput("reflection_roughness_constant", Sdf.ValueTypeNames.Float).Set(0.9)
         shader.CreateInput("metallic_constant", Sdf.ValueTypeNames.Float).Set(0.0)
-        shader.CreateInput("specular_level", Sdf.ValueTypeNames.Float).Set(0.08)
+        shader.CreateInput("specular_level", Sdf.ValueTypeNames.Float).Set(0.05)
         material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
         UsdShade.MaterialBindingAPI.Apply(prim).Bind(material)
 
-        UsdGeom.Cube(prim).GetDisplayColorAttr().Set([Gf.Vec3f(0.55, 0.38, 0.22)])
-        print(f"[INFO] Restyled {path} as warehouse cardboard box with OmniPBR material")
+        UsdGeom.Cube(prim).GetDisplayColorAttr().Set([Gf.Vec3f(0.72, 0.70, 0.68)])
+        print(f"[INFO] Restyled {path} as concrete block with OmniPBR material")
         return
 
 
