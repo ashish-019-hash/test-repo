@@ -109,7 +109,6 @@ DEFAULT_CAMERA_PRIM = "/World/Spot/body/frontleft_fisheye"
 
 FORWARD_SPEED = 0.5
 QUERY_INTERVAL_SECONDS = 0.3
-WARMUP_SECONDS = 3.0
 
 
 class MobileState(Enum):
@@ -696,8 +695,6 @@ class SpotGR00TRunner(object):
         self._object_detected = False
         self._last_query_time = 0.0
         self._query_interval = query_interval
-        self._warmup_seconds = WARMUP_SECONDS
-        self._start_time = 0.0
         self._camera_ready = False
 
         self._pick_place_active = False
@@ -801,10 +798,9 @@ class SpotGR00TRunner(object):
         if self.first_step:
             self._spot.initialize()
             self._camera.initialize()
-            self._start_time = time.time()
-            self._last_query_time = self._start_time
+            self._last_query_time = time.time()
             self.first_step = False
-            print("[Spot] Initialized. Warming up camera...")
+            print("[Spot] Initialized. Waiting for camera...")
             return
 
         if self.needs_reset:
@@ -812,12 +808,10 @@ class SpotGR00TRunner(object):
 
         self._physics_step_count += 1
         now = time.time()
-        elapsed = now - self._start_time
 
-        if elapsed < self._warmup_seconds:
+        if not self._camera_ready:
+            self._get_camera_image()
             self._spot.forward(step_size, np.array([self._forward_speed, 0.0, 0.0]))
-            if self._physics_step_count % 200 == 0:
-                print(f"[Spot] Warming up... {elapsed:.1f}s / {self._warmup_seconds}s")
             return
 
         if not self._pick_place_active:
@@ -844,9 +838,8 @@ class SpotGR00TRunner(object):
         print(f"  Task: {self._task_description}")
         print(f"  Forward speed: {self._forward_speed}")
         print(f"  Query interval: {self._query_interval}s")
-        print(f"  Warmup period: {self._warmup_seconds}s")
         print(f"  IK method: {self._ik_method}")
-        print("  Detection: GR00T backbone feature novelty")
+        print("  Detection: GR00T backbone feature novelty (no hardcoded warmup)")
         print("  Flow: Spot walks -> detects object -> stops")
         print("        -> Ridgeback Franka picks and places cube")
         print("  Press SPACE to reset, ESC to quit.")
@@ -869,6 +862,7 @@ class SpotGR00TRunner(object):
                 self._physics_step_count = 0
                 self._query_count = 0
                 self._camera_ready = False
+                self._last_query_time = time.time()
                 self.needs_reset = False
                 self.first_step = True
                 print("[Spot] Episode reset. Spot will start moving forward again.")
@@ -881,9 +875,8 @@ class SpotGR00TRunner(object):
                     self._pick_place_done = True
                     self._object_detected = False
                     self._policy.reset()
-                    self._start_time = time.time()
                     self._query_count = 0
-                    self._camera_ready = False
+                    self._last_query_time = time.time()
                     stage = omni.usd.get_context().get_stage()
                     spot_prim = stage.GetPrimAtPath("/World/Spot")
                     if spot_prim.IsValid():
