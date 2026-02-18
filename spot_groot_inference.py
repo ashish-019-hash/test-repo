@@ -898,7 +898,7 @@ class SpotGR00TRunner(object):
 
 
 def _restyle_cube_as_pipe(stage):
-    """Apply metallic rust material to FrankaPickPlace's cube (no shape/scale changes)."""
+    """Make cube transparent, add upright cylinder child as visual exhaust pipe."""
     from pxr import UsdShade, Sdf
     for prim in stage.Traverse():
         path = str(prim.GetPath())
@@ -910,20 +910,35 @@ def _restyle_cube_as_pipe(stage):
         if not any(kw in name for kw in ["cube", "block", "target", "object"]):
             continue
 
-        mat_path = f"{path}/PipeMaterial"
-        material = UsdShade.Material.Define(stage, mat_path)
-        shader_path = f"{mat_path}/Shader"
-        shader = UsdShade.Shader.Define(stage, shader_path)
-        shader.CreateIdAttr("OmniPBR")
-        shader.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.45, 0.25, 0.12))
-        shader.CreateInput("reflection_roughness_constant", Sdf.ValueTypeNames.Float).Set(0.55)
-        shader.CreateInput("metallic_constant", Sdf.ValueTypeNames.Float).Set(0.75)
-        shader.CreateInput("specular_level", Sdf.ValueTypeNames.Float).Set(0.35)
-        material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
-        UsdShade.MaterialBindingAPI.Apply(prim).Bind(material)
+        hide_mat_path = f"{path}/HideMaterial"
+        hide_material = UsdShade.Material.Define(stage, hide_mat_path)
+        hide_shader = UsdShade.Shader.Define(stage, f"{hide_mat_path}/Shader")
+        hide_shader.CreateIdAttr("OmniPBR")
+        hide_shader.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.0, 0.0, 0.0))
+        hide_shader.CreateInput("opacity_constant", Sdf.ValueTypeNames.Float).Set(0.0)
+        hide_shader.CreateInput("enable_opacity", Sdf.ValueTypeNames.Bool).Set(True)
+        hide_material.CreateSurfaceOutput().ConnectToSource(hide_shader.ConnectableAPI(), "surface")
+        UsdShade.MaterialBindingAPI.Apply(prim).Bind(hide_material)
 
-        UsdGeom.Cube(prim).GetDisplayColorAttr().Set([Gf.Vec3f(0.45, 0.25, 0.12)])
-        print(f"[INFO] Restyled {path} as metallic cube with OmniPBR material")
+        cyl_path = f"{path}/CylinderVisual"
+        cyl = UsdGeom.Cylinder.Define(stage, cyl_path)
+        cyl.GetRadiusAttr().Set(0.65)
+        cyl.GetHeightAttr().Set(1.8)
+        cyl.GetAxisAttr().Set("Z")
+        cyl.GetDisplayColorAttr().Set([Gf.Vec3f(0.45, 0.25, 0.12)])
+
+        pipe_mat_path = f"{cyl_path}/PipeMaterial"
+        pipe_material = UsdShade.Material.Define(stage, pipe_mat_path)
+        pipe_shader = UsdShade.Shader.Define(stage, f"{pipe_mat_path}/Shader")
+        pipe_shader.CreateIdAttr("OmniPBR")
+        pipe_shader.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.45, 0.25, 0.12))
+        pipe_shader.CreateInput("reflection_roughness_constant", Sdf.ValueTypeNames.Float).Set(0.55)
+        pipe_shader.CreateInput("metallic_constant", Sdf.ValueTypeNames.Float).Set(0.75)
+        pipe_shader.CreateInput("specular_level", Sdf.ValueTypeNames.Float).Set(0.35)
+        pipe_material.CreateSurfaceOutput().ConnectToSource(pipe_shader.ConnectableAPI(), "surface")
+        UsdShade.MaterialBindingAPI.Apply(cyl.GetPrim()).Bind(pipe_material)
+
+        print(f"[INFO] Hidden cube at {path}, added upright cylinder visual at {cyl_path}")
         return
 
 
