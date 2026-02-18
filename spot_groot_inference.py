@@ -898,8 +898,8 @@ class SpotGR00TRunner(object):
 
 
 def _restyle_cube_as_package(stage):
-    """Restyle FrankaPickPlace's default cube to look like a small warehouse package."""
-    from pxr import UsdShade
+    """Restyle FrankaPickPlace's default cube as a realistic warehouse cardboard box."""
+    from pxr import UsdShade, Sdf
     for prim in stage.Traverse():
         path = str(prim.GetPath())
         if any(skip in path for skip in ["/Franka", "/Warehouse", "/Spot", "/Ridgeback"]):
@@ -917,28 +917,20 @@ def _restyle_cube_as_package(stage):
                 op.Set(Gf.Vec3f(s[0] * 1.3, s[1] * 0.9, s[2] * 0.7))
                 break
 
-        bound = UsdShade.MaterialBindingAPI(prim)
-        mat_binding = bound.GetDirectBinding()
-        mat_path = mat_binding.GetMaterialPath() if mat_binding else None
-        if mat_path and mat_path != "":
-            mat_prim = stage.GetPrimAtPath(mat_path)
-            if mat_prim.IsValid():
-                shader = UsdShade.Shader(mat_prim) if mat_prim.IsA(UsdShade.Shader) else None
-                if shader is None:
-                    for child in mat_prim.GetAllChildren():
-                        if child.IsA(UsdShade.Shader):
-                            shader = UsdShade.Shader(child)
-                            break
-                if shader:
-                    for attr_name in ["inputs:diffuseColor", "inputs:diffuse_color_constant", "inputs:base_color"]:
-                        attr = shader.GetPrim().GetAttribute(attr_name)
-                        if attr and attr.IsValid():
-                            attr.Set(Gf.Vec3f(0.45, 0.30, 0.15))
-                            print(f"[INFO] Set material color on {attr_name}")
-                            break
+        mat_path = f"{path}/CardboardMaterial"
+        material = UsdShade.Material.Define(stage, mat_path)
+        shader_path = f"{mat_path}/Shader"
+        shader = UsdShade.Shader.Define(stage, shader_path)
+        shader.CreateIdAttr("OmniPBR")
+        shader.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.55, 0.38, 0.22))
+        shader.CreateInput("reflection_roughness_constant", Sdf.ValueTypeNames.Float).Set(0.85)
+        shader.CreateInput("metallic_constant", Sdf.ValueTypeNames.Float).Set(0.0)
+        shader.CreateInput("specular_level", Sdf.ValueTypeNames.Float).Set(0.08)
+        material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
+        UsdShade.MaterialBindingAPI.Apply(prim).Bind(material)
 
-        UsdGeom.Cube(prim).GetDisplayColorAttr().Set([Gf.Vec3f(0.45, 0.30, 0.15)])
-        print(f"[INFO] Restyled {path} as warehouse package (brown box)")
+        UsdGeom.Cube(prim).GetDisplayColorAttr().Set([Gf.Vec3f(0.55, 0.38, 0.22)])
+        print(f"[INFO] Restyled {path} as warehouse cardboard box with OmniPBR material")
         return
 
 
