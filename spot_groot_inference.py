@@ -884,7 +884,15 @@ class SpotGR00TRunner(object):
                     self._start_time = time.time()
                     self._query_count = 0
                     self._camera_ready = False
-                    print("[Spot] Pick-and-place complete! Spot resuming walk with GR00T queries. Press SPACE to reset for another cycle.")
+                    stage = omni.usd.get_context().get_stage()
+                    spot_prim = stage.GetPrimAtPath("/World/Spot")
+                    if spot_prim.IsValid():
+                        xform = UsdGeom.Xformable(spot_prim)
+                        for op in xform.GetOrderedXformOps():
+                            if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                                op.Set(Gf.Vec3d(3.5, 3.0, 0.8))
+                                break
+                    print("[Spot] Pick-and-place complete! Spot reset to start position, resuming walk.")
         return
 
     def _sub_keyboard_event(self, event, *args, **kwargs) -> bool:
