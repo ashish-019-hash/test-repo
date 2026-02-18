@@ -898,7 +898,7 @@ class SpotGR00TRunner(object):
 
 
 def _restyle_cube_as_pipe(stage):
-    """Restyle FrankaPickPlace's cube as an elongated metallic exhaust pipe."""
+    """Apply metallic rust material to FrankaPickPlace's cube (no shape/scale changes)."""
     from pxr import UsdShade, Sdf
     for prim in stage.Traverse():
         path = str(prim.GetPath())
@@ -909,13 +909,6 @@ def _restyle_cube_as_pipe(stage):
         name = prim.GetName().lower()
         if not any(kw in name for kw in ["cube", "block", "target", "object"]):
             continue
-
-        xform = UsdGeom.Xformable(prim)
-        for op in xform.GetOrderedXformOps():
-            if op.GetOpType() == UsdGeom.XformOp.TypeScale:
-                s = op.Get()
-                op.Set(Gf.Vec3f(s[0] * 0.6, s[1] * 2.5, s[2] * 0.6))
-                break
 
         mat_path = f"{path}/PipeMaterial"
         material = UsdShade.Material.Define(stage, mat_path)
@@ -930,7 +923,7 @@ def _restyle_cube_as_pipe(stage):
         UsdShade.MaterialBindingAPI.Apply(prim).Bind(material)
 
         UsdGeom.Cube(prim).GetDisplayColorAttr().Set([Gf.Vec3f(0.45, 0.25, 0.12)])
-        print(f"[INFO] Restyled {path} as exhaust pipe with metallic OmniPBR material")
+        print(f"[INFO] Restyled {path} as metallic cube with OmniPBR material")
         return
 
 
