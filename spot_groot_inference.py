@@ -660,7 +660,7 @@ class SpotGR00TRunner(object):
             usd_path=usd_path,
             policy_path=policy_path,
             policy_params_path=policy_params_path,
-            position=np.array([3.5, 3, 0.8]),
+            position=np.array([3.5, 6, 0.8]),
             orientation=np.array([0.707, 0, 0, -0.707]),
         )
 
@@ -890,7 +890,7 @@ class SpotGR00TRunner(object):
                         xform = UsdGeom.Xformable(spot_prim)
                         for op in xform.GetOrderedXformOps():
                             if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
-                                op.Set(Gf.Vec3d(3.5, 3.0, 0.8))
+                                op.Set(Gf.Vec3d(3.5, 6.0, 0.8))
                                 break
                     print("[Spot] Pick-and-place complete! Spot reset to start position, resuming walk.")
         return
