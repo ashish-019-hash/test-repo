@@ -899,6 +899,7 @@ class SpotGR00TRunner(object):
 
 def _restyle_cube_as_package(stage):
     """Restyle FrankaPickPlace's default cube to look like a small warehouse package."""
+    from pxr import UsdShade
     for prim in stage.Traverse():
         path = str(prim.GetPath())
         if any(skip in path for skip in ["/Franka", "/Warehouse", "/Spot", "/Ridgeback"]):
@@ -909,18 +910,35 @@ def _restyle_cube_as_package(stage):
         if not any(kw in name for kw in ["cube", "block", "target", "object"]):
             continue
 
-        cube = UsdGeom.Cube(prim)
         xform = UsdGeom.Xformable(prim)
-        has_scale = False
         for op in xform.GetOrderedXformOps():
             if op.GetOpType() == UsdGeom.XformOp.TypeScale:
-                op.Set(Gf.Vec3f(1.2, 0.8, 0.6))
-                has_scale = True
+                s = op.Get()
+                op.Set(Gf.Vec3f(s[0] * 1.3, s[1] * 0.9, s[2] * 0.7))
                 break
-        if not has_scale:
-            xform.AddScaleOp().Set(Gf.Vec3f(1.2, 0.8, 0.6))
-        cube.GetDisplayColorAttr().Set([Gf.Vec3f(0.55, 0.36, 0.18)])
-        print(f"[INFO] Restyled {path} as warehouse package (brown rectangular box)")
+
+        bound = UsdShade.MaterialBindingAPI(prim)
+        mat_binding = bound.GetDirectBinding()
+        mat_path = mat_binding.GetMaterialPath() if mat_binding else None
+        if mat_path and mat_path != "":
+            mat_prim = stage.GetPrimAtPath(mat_path)
+            if mat_prim.IsValid():
+                shader = UsdShade.Shader(mat_prim) if mat_prim.IsA(UsdShade.Shader) else None
+                if shader is None:
+                    for child in mat_prim.GetAllChildren():
+                        if child.IsA(UsdShade.Shader):
+                            shader = UsdShade.Shader(child)
+                            break
+                if shader:
+                    for attr_name in ["inputs:diffuseColor", "inputs:diffuse_color_constant", "inputs:base_color"]:
+                        attr = shader.GetPrim().GetAttribute(attr_name)
+                        if attr and attr.IsValid():
+                            attr.Set(Gf.Vec3f(0.45, 0.30, 0.15))
+                            print(f"[INFO] Set material color on {attr_name}")
+                            break
+
+        UsdGeom.Cube(prim).GetDisplayColorAttr().Set([Gf.Vec3f(0.45, 0.30, 0.15)])
+        print(f"[INFO] Restyled {path} as warehouse package (brown box)")
         return
 
 
