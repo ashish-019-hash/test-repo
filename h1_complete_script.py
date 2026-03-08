@@ -916,10 +916,32 @@ class H1GR00TRunner(object):
         if not franka_loaded:
             print("[StaticFranka] WARNING: Could not load any Franka USD asset!")
 
-        # Position and rotate 180 degrees around Z
+        # Position and rotate 180 degrees around Z.
+        # The Franka USD may already have xformOps defined (translate, orient, scale),
+        # so we must reuse existing ops instead of adding duplicates.
         xform = UsdGeom.Xformable(franka_prim)
-        xform.AddTranslateOp().Set(Gf.Vec3d(opposite_x, 0.0, 0.0))
-        xform.AddRotateZOp().Set(180.0)
+        existing_ops = xform.GetOrderedXformOps()
+        translate_set = False
+        rotate_set = False
+        for op in existing_ops:
+            if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                op.Set(Gf.Vec3d(opposite_x, 0.0, 0.0))
+                translate_set = True
+            elif op.GetOpType() == UsdGeom.XformOp.TypeOrient:
+                # 180 degrees around Z as quaternion: (w=0, x=0, y=0, z=1)
+                op.Set(Gf.Quatd(0.0, 0.0, 0.0, 1.0))
+                rotate_set = True
+        if not translate_set:
+            xform.AddTranslateOp().Set(Gf.Vec3d(opposite_x, 0.0, 0.0))
+        if not rotate_set:
+            # Try orient first, fall back to rotateZ
+            try:
+                xform.AddOrientOp().Set(Gf.Quatd(0.0, 0.0, 0.0, 1.0))
+            except Exception:
+                try:
+                    xform.AddRotateZOp().Set(180.0)
+                except Exception:
+                    print("[StaticFranka] WARNING: Could not set rotation on static Franka")
 
         # Make the static Franka kinematic instead of stripping physics.
         # This keeps the visual intact while preventing it from simulating dynamics.
