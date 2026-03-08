@@ -785,6 +785,9 @@ class H1GR00TRunner(object):
         self._ridgeback_franka.setup_mobile_base(self._stage)
         print("[H1] Ridgeback Franka mobile manipulator added to scene.")
 
+        # --- Static second Ridgeback Franka (opposite side, no behavior) ---
+        self._setup_static_franka_opposite(self._stage, cube_offset, assets_root_path)
+
         self._camera_prim = camera_prim
         self._setup_camera()
 
@@ -860,6 +863,58 @@ class H1GR00TRunner(object):
             xf.AddTranslateOp().Set(Gf.Vec3d(0.02, 0.0, 0.0))
         except Exception as e:
             print(f"[Camera] Could not add head camera visualization: {e}")
+
+    def _setup_static_franka_opposite(self, stage, cube_offset, assets_root_path):
+        """Add a static (non-functional) Ridgeback Franka on the opposite side of the active one.
+
+        The active Ridgeback Franka starts at the origin (0, 0, 0).
+        This static copy is placed at (2 * cube_offset, 0, 0) — on the far side of the
+        object — rotated 180 degrees around Z so it faces back toward the origin.
+        It has no physics, no articulation controller, and no behavior.
+        """
+        opposite_x = 2.0 * cube_offset
+        static_franka_prim_path = "/World/StaticFranka"
+        static_base_prim_path = "/World/StaticRidgebackBase"
+
+        # Load Franka USD as a reference (visual only)
+        franka_prim = define_prim(static_franka_prim_path, "Xform")
+        franka_asset = assets_root_path + "/Isaac/Robots/Franka/franka_alt_fingers.usd"
+        franka_prim.GetReferences().AddReference(franka_asset)
+
+        # Position and rotate 180 degrees around Z
+        xform = UsdGeom.Xformable(franka_prim)
+        xform.AddTranslateOp().Set(Gf.Vec3d(opposite_x, 0.0, 0.0))
+        xform.AddRotateZOp().Set(180.0)
+
+        # Disable physics on the static Franka so it doesn't fall or interact
+        for prim in stage.Traverse():
+            prim_path = str(prim.GetPath())
+            if not prim_path.startswith(static_franka_prim_path):
+                continue
+            # Remove any articulation API
+            articulation_api = PhysxSchema.PhysxArticulationAPI.Get(stage, prim_path)
+            if articulation_api:
+                try:
+                    prim.RemoveAPI(PhysxSchema.PhysxArticulationAPI)
+                except Exception:
+                    pass
+            # Disable rigid body physics
+            rigid_body = UsdPhysics.RigidBodyAPI.Get(stage, prim_path)
+            if rigid_body:
+                try:
+                    rigid_body.GetRigidBodyEnabledAttr().Set(False)
+                except Exception:
+                    pass
+
+        # Create static Ridgeback visual base (gray box, same as active one)
+        base_prim = UsdGeom.Cube.Define(stage, static_base_prim_path)
+        base_prim.GetSizeAttr().Set(0.5)
+        base_xform = UsdGeom.Xformable(base_prim)
+        base_xform.AddScaleOp().Set(Gf.Vec3f(1.0, 0.7, 0.4))
+        base_xform.AddTranslateOp().Set(Gf.Vec3d(opposite_x, 0.0, 0.1))
+        base_prim.GetDisplayColorAttr().Set([Gf.Vec3f(0.3, 0.3, 0.3)])
+
+        print(f"[StaticFranka] Static Ridgeback Franka added at ({opposite_x}, 0, 0) facing -X (opposite side).")
 
     def _setup_ros2_camera_graph(self):
         """Create an OmniGraph that publishes the camera via ROS 2 bridge."""
