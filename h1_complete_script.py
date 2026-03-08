@@ -876,33 +876,80 @@ class H1GR00TRunner(object):
         static_franka_prim_path = "/World/StaticFranka"
         static_base_prim_path = "/World/StaticRidgebackBase"
 
-        # Load Franka USD as a reference (visual only)
+        # Try multiple known Franka USD asset paths across Isaac Sim versions
+        franka_asset_candidates = [
+            assets_root_path + "/Isaac/Robots/Franka/franka_alt_fingers.usd",
+            assets_root_path + "/Isaac/Robots/Franka/franka.usd",
+            assets_root_path + "/Isaac/Robots/FrankaEmika/franka_alt_fingers.usd",
+            assets_root_path + "/Isaac/Robots/FrankaEmika/franka.usd",
+            assets_root_path + "/Isaac/Robots/Franka/franka_instanceable.usd",
+        ]
+
+        # Also try to discover the asset path from the active Franka prim
+        active_franka_path = self._ridgeback_franka._franka_prim_path
+        if active_franka_path:
+            active_prim = stage.GetPrimAtPath(active_franka_path)
+            if active_prim.IsValid():
+                refs = active_prim.GetReferences()
+                try:
+                    prim_stack = active_prim.GetPrimStack()
+                    for layer_spec in prim_stack:
+                        for ref in layer_spec.referenceList.prependedItems:
+                            if ref.assetPath:
+                                franka_asset_candidates.insert(0, ref.assetPath)
+                                print(f"[StaticFranka] Discovered active Franka asset: {ref.assetPath}")
+                except Exception as e:
+                    print(f"[StaticFranka] Could not read active Franka references: {e}")
+
+        # Load Franka USD as a reference
         franka_prim = define_prim(static_franka_prim_path, "Xform")
-        franka_asset = assets_root_path + "/Isaac/Robots/Franka/franka_alt_fingers.usd"
-        franka_prim.GetReferences().AddReference(franka_asset)
+        franka_loaded = False
+        for asset_path in franka_asset_candidates:
+            try:
+                franka_prim.GetReferences().AddReference(asset_path)
+                franka_loaded = True
+                print(f"[StaticFranka] Loaded Franka from: {asset_path}")
+                break
+            except Exception:
+                continue
+
+        if not franka_loaded:
+            print("[StaticFranka] WARNING: Could not load any Franka USD asset!")
 
         # Position and rotate 180 degrees around Z
         xform = UsdGeom.Xformable(franka_prim)
         xform.AddTranslateOp().Set(Gf.Vec3d(opposite_x, 0.0, 0.0))
         xform.AddRotateZOp().Set(180.0)
 
-        # Disable physics on the static Franka so it doesn't fall or interact
+        # Make the static Franka kinematic instead of stripping physics.
+        # This keeps the visual intact while preventing it from simulating dynamics.
+        # Set the root articulation to fixed base and kinematic on all rigid bodies.
         for prim in stage.Traverse():
-            prim_path = str(prim.GetPath())
-            if not prim_path.startswith(static_franka_prim_path):
-                continue
-            # Remove any articulation API
-            articulation_api = PhysxSchema.PhysxArticulationAPI.Get(stage, prim_path)
+            prim_path_str = str(prim.GetPath())
+            if not prim_path_str.startswith(static_franka_prim_path + "/"):
+                if prim_path_str != static_franka_prim_path:
+                    continue
+            # Fix the articulation base so it doesn't move
+            articulation_api = PhysxSchema.PhysxArticulationAPI.Get(stage, prim_path_str)
             if articulation_api:
                 try:
-                    prim.RemoveAPI(PhysxSchema.PhysxArticulationAPI)
-                except Exception:
-                    pass
-            # Disable rigid body physics
-            rigid_body = UsdPhysics.RigidBodyAPI.Get(stage, prim_path)
+                    fix_base_attr = articulation_api.GetFixBaseAttr()
+                    if fix_base_attr:
+                        fix_base_attr.Set(True)
+                    else:
+                        articulation_api.CreateFixBaseAttr(True)
+                    print(f"[StaticFranka] Fixed articulation base at: {prim_path_str}")
+                except Exception as e:
+                    print(f"[StaticFranka] Could not fix articulation base: {e}")
+            # Set rigid bodies to kinematic so they hold their pose
+            rigid_body = UsdPhysics.RigidBodyAPI.Get(stage, prim_path_str)
             if rigid_body:
                 try:
-                    rigid_body.GetRigidBodyEnabledAttr().Set(False)
+                    kinematic_attr = rigid_body.GetKinematicEnabledAttr()
+                    if kinematic_attr:
+                        kinematic_attr.Set(True)
+                    else:
+                        rigid_body.CreateKinematicEnabledAttr(True)
                 except Exception:
                     pass
 
