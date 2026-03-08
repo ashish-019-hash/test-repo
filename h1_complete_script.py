@@ -769,6 +769,12 @@ class H1GR00TRunner(object):
         )
         self._h1_2_prim_path = "/World/H1_2"
 
+        # Distance-based H1_2 movement state (mirrors H1 logic)
+        self._h1_2_reached_object = False
+        self._h1_2_stopping = False
+        self._h1_2_last_position = None
+        self._h1_2_settled_count = 0
+
         self._cube_offset = cube_offset
         self._ik_method = ik_method
 
@@ -1098,11 +1104,9 @@ class H1GR00TRunner(object):
         self._update_stabilized_camera()
 
 
-        # Step the second H1 robot forward every physics step
-        self._h1_2.forward(step_size, np.array([self._forward_speed, 0.0, 0.0]))
-
         if elapsed < self._warmup_seconds:
             self._h1.forward(step_size, np.array([self._forward_speed, 0.0, 0.0]))
+            self._h1_2.forward(step_size, np.array([self._forward_speed, 0.0, 0.0]))
             if self._physics_step_count % 200 == 0:
                 print(f"[H1] Warming up... {elapsed:.1f}s / {self._warmup_seconds}s")
             return
@@ -1192,6 +1196,63 @@ class H1GR00TRunner(object):
 
             self._h1.forward(step_size, np.array([self._forward_speed, 0.0, yaw_cmd]))
 
+        # --- Distance-based H1_2 movement (mirrors H1 logic) ---
+        h1_2_pos = None
+        h1_2_orient = None
+        try:
+            h1_2_pos, h1_2_orient = self._h1_2.robot.get_world_pose()
+        except Exception:
+            pass
+
+        # Check if H1_2 has reached the object
+        if h1_2_pos is not None and not self._h1_2_reached_object and not self._pick_place_active and not self._pick_place_done:
+            distance_to_object_2 = np.linalg.norm(h1_2_pos[:2] - self._object_position[:2])
+            if self._physics_step_count % 200 == 0:
+                print(f"[H1_2] Walking toward object... distance={distance_to_object_2:.2f}m (stop at {ROBOT_STOP_DISTANCE}m)")
+            if distance_to_object_2 <= ROBOT_STOP_DISTANCE:
+                self._h1_2_reached_object = True
+                self._h1_2_stopping = True
+                self._h1_2_settled_count = 0
+                self._h1_2_last_position = None
+                print(f"[H1_2] Reached object vicinity (distance={distance_to_object_2:.2f}m <= {ROBOT_STOP_DISTANCE}m). Stopping...")
+
+        # While H1_2 is stopping, monitor its position to detect when it has physically settled
+        if self._h1_2_stopping and not self._pick_place_active:
+            if h1_2_pos is not None and self._h1_2_last_position is not None:
+                pos_delta_2 = np.linalg.norm(h1_2_pos[:2] - self._h1_2_last_position[:2])
+                if pos_delta_2 < ROBOT_SETTLED_THRESHOLD:
+                    self._h1_2_settled_count += 1
+                else:
+                    self._h1_2_settled_count = 0
+                if self._h1_2_settled_count >= ROBOT_SETTLED_FRAMES:
+                    self._h1_2_stopping = False
+                    print(f"[H1_2] H1_2 has stopped (settled for {ROBOT_SETTLED_FRAMES} frames). Waiting for pick-and-place to complete...")
+                elif self._physics_step_count % 100 == 0:
+                    print(f"[H1_2] Waiting for H1_2 to stop... settled_count={self._h1_2_settled_count}/{ROBOT_SETTLED_FRAMES}, delta={pos_delta_2:.4f}")
+            if h1_2_pos is not None:
+                self._h1_2_last_position = h1_2_pos.copy()
+
+        # H1_2 movement control: walk forward with yaw steering, or stop
+        if self._pick_place_active or self._h1_2_stopping or self._h1_2_reached_object or self._waiting_for_franka_delay:
+            self._h1_2.forward(step_size, np.zeros(3))
+        elif self._pick_place_done:
+            # Task done — walk straight forward without steering
+            self._h1_2.forward(step_size, np.array([self._forward_speed, 0.0, 0.0]))
+        else:
+            # Compute yaw correction to steer H1_2 toward the object
+            yaw_cmd_2 = 0.0
+            if h1_2_pos is not None and h1_2_orient is not None:
+                dx_2 = self._object_position[0] - h1_2_pos[0]
+                dy_2 = self._object_position[1] - h1_2_pos[1]
+                desired_yaw_2 = np.arctan2(dy_2, dx_2)
+                current_yaw_2 = _quat_to_yaw(h1_2_orient)
+                yaw_error_2 = desired_yaw_2 - current_yaw_2
+                yaw_error_2 = (yaw_error_2 + np.pi) % (2 * np.pi) - np.pi
+                yaw_cmd_2 = 2.0 * yaw_error_2  # Kp = 2.0
+                yaw_cmd_2 = np.clip(yaw_cmd_2, -1.5, 1.5)
+
+            self._h1_2.forward(step_size, np.array([self._forward_speed, 0.0, yaw_cmd_2]))
+
     def run(self) -> None:
         print("")
         print("=" * 60)
@@ -1227,6 +1288,10 @@ class H1GR00TRunner(object):
                 self._robot_stopping = False
                 self._robot_last_position = None
                 self._robot_settled_count = 0
+                self._h1_2_reached_object = False
+                self._h1_2_stopping = False
+                self._h1_2_last_position = None
+                self._h1_2_settled_count = 0
                 self._smooth_camera_pos = None
                 self._smooth_camera_yaw = None
                 self._physics_step_count = 0
@@ -1249,13 +1314,17 @@ class H1GR00TRunner(object):
                     self._robot_stopping = False
                     self._robot_last_position = None
                     self._robot_settled_count = 0
+                    self._h1_2_reached_object = False  # allows H1_2 to walk forward
+                    self._h1_2_stopping = False
+                    self._h1_2_last_position = None
+                    self._h1_2_settled_count = 0
                     self._waiting_for_franka_delay = False
                     self._franka_delay_start_time = 0.0
                     self._policy.reset()
                     self._start_time = time.time()
                     self._query_count = 0
                     self._camera_ready = False
-                    print("[H1] Pick-and-place complete! H1 resuming walk forward.")
+                    print("[H1] Pick-and-place complete! H1 and H1_2 resuming walk forward.")
 
         return
 
