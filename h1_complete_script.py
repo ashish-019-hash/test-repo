@@ -1356,26 +1356,12 @@ class H1GR00TRunner(object):
             if h1_2_pos is not None:
                 self._h1_2_last_position = h1_2_pos.copy()
 
-        # H1_2 movement control: walk forward with yaw steering, or stop
+        # H1_2 movement control: walk straight forward (no steering), or stop
         if self._pick_place_active or self._h1_2_stopping or self._h1_2_reached_object or self._waiting_for_franka_delay:
             self._h1_2.forward(step_size, np.zeros(3))
-        elif self._pick_place_done:
-            # Task done — walk straight forward without steering
-            self._h1_2.forward(step_size, np.array([self._forward_speed, 0.0, 0.0]))
         else:
-            # Compute yaw correction to steer H1_2 toward the object
-            yaw_cmd_2 = 0.0
-            if h1_2_pos is not None and h1_2_orient is not None:
-                dx_2 = self._object_position[0] - h1_2_pos[0]
-                dy_2 = self._object_position[1] - h1_2_pos[1]
-                desired_yaw_2 = np.arctan2(dy_2, dx_2)
-                current_yaw_2 = _quat_to_yaw(h1_2_orient)
-                yaw_error_2 = desired_yaw_2 - current_yaw_2
-                yaw_error_2 = (yaw_error_2 + np.pi) % (2 * np.pi) - np.pi
-                yaw_cmd_2 = 2.0 * yaw_error_2  # Kp = 2.0
-                yaw_cmd_2 = np.clip(yaw_cmd_2, -1.5, 1.5)
-
-            self._h1_2.forward(step_size, np.array([self._forward_speed, 0.0, yaw_cmd_2]))
+            # Walk straight forward — no yaw steering
+            self._h1_2.forward(step_size, np.array([self._forward_speed, 0.0, 0.0]))
 
     def run(self) -> None:
         print("")
