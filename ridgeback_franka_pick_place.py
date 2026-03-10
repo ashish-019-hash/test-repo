@@ -189,9 +189,29 @@ class RidgebackFrankaMobile:
             print(f"[INFO] Using first scene prim as cube: {self._cube_prim_path}")
 
     def _get_cube_position(self, stage):
-        """Read the cube prim's current translate from USD."""
+        """Read the cube's current position, preferring physics (dynamic control).
+
+        The physics-simulated position reflects where the cube actually is
+        (e.g. after being lifted by the gripper), whereas the USD-authored
+        translate may still show the original table position.
+        """
         if self._cube_prim_path is None:
             return None
+
+        # Prefer dynamic control — gives the actual physics-simulated position
+        if self._dc is not None:
+            try:
+                if self._cube_rigid_body_handle is None:
+                    self._cube_rigid_body_handle = self._dc.get_rigid_body(self._cube_prim_path)
+                    if self._cube_rigid_body_handle == 0:
+                        self._cube_rigid_body_handle = None
+                if self._cube_rigid_body_handle is not None:
+                    pose = self._dc.get_rigid_body_pose(self._cube_rigid_body_handle)
+                    return np.array([pose.p.x, pose.p.y, pose.p.z])
+            except Exception:
+                pass
+
+        # Fallback: USD-authored translate
         prim = stage.GetPrimAtPath(self._cube_prim_path)
         if not prim.IsValid():
             return None
@@ -626,10 +646,17 @@ class RidgebackFrankaMobile:
             self.franka_pick_place.forward(ik_method)
             self._pick_steps += 1
 
+            # Check FrankaPickPlace internal phase:
+            #   0-1: approach   2: close gripper   3: lift
+            #   4: move to target   5: open gripper   6: retract
+            # We want to intercept at phase >= 4 (lift complete, about to
+            # move to target) so the cube is actually in the gripper.
+            franka_event = getattr(self.franka_pick_place, '_event', -1)
+            grasp_lift_done = franka_event >= 4
             cube_lifted = self._is_cube_lifted(stage)
             pick_done = self.franka_pick_place.is_done()
 
-            if cube_lifted or pick_done or self._pick_steps > 800:
+            if grasp_lift_done or cube_lifted or pick_done or self._pick_steps > 1500:
                 # Record the cube's position relative to the mobile base.
                 # During transport the cube will be placed at
                 # current_base_position + this offset each frame, so it
@@ -653,7 +680,14 @@ class RidgebackFrankaMobile:
                 # the physics engine fighting the transport updates.
                 self._set_cube_kinematic(stage, True)
 
-                reason = "lifted" if cube_lifted else ("full-cycle" if pick_done else "timeout")
+                if grasp_lift_done:
+                    reason = f"grasp-lift-done (event={franka_event})"
+                elif cube_lifted:
+                    reason = "lifted"
+                elif pick_done:
+                    reason = "full-cycle"
+                else:
+                    reason = "timeout"
                 print(f"[STATE] PICK_CUBE -> RETURN_TO_START ({reason} after {self._pick_steps} steps)")
                 self._state = MobileState.RETURN_TO_START
                 self._state_step_count = 0
