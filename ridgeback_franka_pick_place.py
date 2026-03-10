@@ -86,6 +86,8 @@ class RidgebackFrankaMobile:
         self._gripper_prim_path = None
         self._gripper_to_cube_offset = np.array([0.0, 0.0, -0.04])
         self._pick_steps = 0
+        self._cube_kinematic_enabled = False  # True when cube physics is disabled for transport
+        self._cube_rigid_body_handle = None  # dynamic control handle for cube rigid body
 
     def setup_mobile_base(self, stage):
         """Create the visual mobile base and configure the Franka for movement."""
@@ -181,19 +183,55 @@ class RidgebackFrankaMobile:
         return None
 
     def _set_cube_position(self, stage, position):
-        """Set the cube prim's translate in USD."""
+        """Set the cube prim's position using dynamic control (physics-aware) with USD fallback."""
         if self._cube_prim_path is None:
             return
-        prim = stage.GetPrimAtPath(self._cube_prim_path)
-        if not prim.IsValid():
-            return
-        xform = UsdGeom.Xformable(prim)
-        if not xform:
-            return
-        for op in xform.GetOrderedXformOps():
-            if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
-                op.Set(Gf.Vec3d(position[0], position[1], position[2]))
+
+        # Prefer dynamic control to move the rigid body directly in the physics engine.
+        # This avoids the physics solver fighting with USD translate updates (dragging).
+        moved = False
+        if self._dc is not None:
+            if self._cube_rigid_body_handle is None:
+                try:
+                    self._cube_rigid_body_handle = self._dc.get_rigid_body(self._cube_prim_path)
+                    if self._cube_rigid_body_handle == 0:
+                        self._cube_rigid_body_handle = None
+                except Exception:
+                    self._cube_rigid_body_handle = None
+
+            if self._cube_rigid_body_handle is not None:
+                try:
+                    transform = _dynamic_control.Transform()
+                    transform.p = _dynamic_control.float3(
+                        float(position[0]), float(position[1]), float(position[2])
+                    )
+                    transform.r = _dynamic_control.float4(0.0, 0.0, 0.0, 1.0)
+                    self._dc.set_rigid_body_pose(self._cube_rigid_body_handle, transform)
+                    # Also zero out velocity so the cube doesn't drift
+                    self._dc.set_rigid_body_linear_velocity(
+                        self._cube_rigid_body_handle,
+                        _dynamic_control.float3(0.0, 0.0, 0.0),
+                    )
+                    self._dc.set_rigid_body_angular_velocity(
+                        self._cube_rigid_body_handle,
+                        _dynamic_control.float3(0.0, 0.0, 0.0),
+                    )
+                    moved = True
+                except Exception:
+                    pass
+
+        # Fallback: set USD translate directly
+        if not moved:
+            prim = stage.GetPrimAtPath(self._cube_prim_path)
+            if not prim.IsValid():
                 return
+            xform = UsdGeom.Xformable(prim)
+            if not xform:
+                return
+            for op in xform.GetOrderedXformOps():
+                if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                    op.Set(Gf.Vec3d(position[0], position[1], position[2]))
+                    return
 
     def _find_gripper_prim(self, stage):
         """Find the Franka gripper/hand prim for tracking during transport."""
@@ -221,9 +259,22 @@ class RidgebackFrankaMobile:
         print("[WARNING] Could not find gripper prim, cube transport may not track correctly")
 
     def _get_gripper_world_position(self, stage):
-        """Get the gripper's world position via composed USD transforms."""
+        """Get the gripper's world position using dynamic control (physics-accurate) with USD fallback."""
         if self._gripper_prim_path is None:
             return None
+
+        # Prefer dynamic control — gives the actual physics-simulated position
+        # rather than the USD-authored transform which may lag behind.
+        if self._dc is not None:
+            try:
+                gripper_body = self._dc.get_rigid_body(self._gripper_prim_path)
+                if gripper_body != 0:
+                    pose = self._dc.get_rigid_body_pose(gripper_body)
+                    return np.array([pose.p.x, pose.p.y, pose.p.z])
+            except Exception:
+                pass
+
+        # Fallback: composed USD transforms
         prim = stage.GetPrimAtPath(self._gripper_prim_path)
         if not prim.IsValid():
             return None
@@ -244,6 +295,56 @@ class RidgebackFrankaMobile:
             self._current_position[1],
             0.5
         ]))
+
+    def _set_cube_kinematic(self, stage, kinematic):
+        """Enable or disable kinematic mode on the cube's rigid body.
+
+        When kinematic=True, the physics solver stops simulating dynamics on
+        the cube (no gravity, no collision response) so it can be repositioned
+        each frame without fighting the physics engine.
+        When kinematic=False, normal dynamics are restored for placement.
+        """
+        if self._cube_prim_path is None:
+            return
+        if kinematic == self._cube_kinematic_enabled:
+            return  # already in desired state
+
+        prim = stage.GetPrimAtPath(self._cube_prim_path)
+        if not prim.IsValid():
+            return
+
+        rigid_body = UsdPhysics.RigidBodyAPI.Get(stage, self._cube_prim_path)
+        if rigid_body:
+            try:
+                kinematic_attr = rigid_body.GetKinematicEnabledAttr()
+                if kinematic_attr:
+                    kinematic_attr.Set(kinematic)
+                else:
+                    rigid_body.CreateKinematicEnabledAttr(kinematic)
+                self._cube_kinematic_enabled = kinematic
+                state = "kinematic" if kinematic else "dynamic"
+                print(f"[INFO] Cube rigid body set to {state}")
+            except Exception as e:
+                print(f"[WARNING] Could not set cube kinematic={kinematic}: {e}")
+
+        # Also zero velocity when making kinematic to prevent residual drift
+        if kinematic and self._dc is not None:
+            try:
+                if self._cube_rigid_body_handle is None:
+                    self._cube_rigid_body_handle = self._dc.get_rigid_body(self._cube_prim_path)
+                    if self._cube_rigid_body_handle == 0:
+                        self._cube_rigid_body_handle = None
+                if self._cube_rigid_body_handle is not None:
+                    self._dc.set_rigid_body_linear_velocity(
+                        self._cube_rigid_body_handle,
+                        _dynamic_control.float3(0.0, 0.0, 0.0),
+                    )
+                    self._dc.set_rigid_body_angular_velocity(
+                        self._cube_rigid_body_handle,
+                        _dynamic_control.float3(0.0, 0.0, 0.0),
+                    )
+            except Exception:
+                pass
 
     def _is_cube_lifted(self, stage):
         """Check if the cube has been lifted above its original height."""
@@ -451,9 +552,14 @@ class RidgebackFrankaMobile:
             except Exception:
                 self._articulation_handle = None
 
+        # Restore cube physics if it was left kinematic from a previous run
+        stage = omni.usd.get_context().get_stage()
+        self._set_cube_kinematic(stage, False)
+        self._cube_rigid_body_handle = None
+
         self._set_positions(self.start_position)
         self.franka_pick_place.reset()
-        self._apply_scene_offset(omni.usd.get_context().get_stage())
+        self._apply_scene_offset(stage)
 
         print(f"[INFO] Ridgeback Franka reset to start position {self.start_position}")
 
@@ -501,6 +607,11 @@ class RidgebackFrankaMobile:
                     self._gripper_to_cube_offset = cube_pos - gripper_pos
                 elif gripper_pos is not None:
                     self._gripper_to_cube_offset = np.array([0.0, 0.0, -0.04])
+
+                # Make cube kinematic so it can be repositioned without
+                # the physics engine fighting the transport updates.
+                self._set_cube_kinematic(stage, True)
+
                 reason = "lifted" if cube_lifted else ("full-cycle" if pick_done else "timeout")
                 print(f"[STATE] PICK_CUBE -> RETURN_TO_START ({reason} after {self._pick_steps} steps)")
                 self._state = MobileState.RETURN_TO_START
@@ -536,11 +647,16 @@ class RidgebackFrankaMobile:
             self.franka_pick_place.forward(ik_method)
 
             # Keep cube kinematically attached to gripper while arm moves to target (phase 4)
-            # Once gripper starts opening (phase 5+), stop tracking so cube stays in place
+            # Once gripper starts opening (phase 5+), restore dynamics and stop tracking
             if self.franka_pick_place._event < 5:
                 self._position_cube_at_gripper(stage)
+            else:
+                # Restore cube physics so it falls naturally when released
+                self._set_cube_kinematic(stage, False)
 
             if self.franka_pick_place.is_done():
+                # Ensure dynamics are restored
+                self._set_cube_kinematic(stage, False)
                 print("[STATE] PLACE_CUBE -> DONE")
                 self._state = MobileState.DONE
 
