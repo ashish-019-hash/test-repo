@@ -88,6 +88,10 @@ class RidgebackFrankaMobile:
         self._pick_steps = 0
         self._cube_kinematic_enabled = False  # True when cube physics is disabled for transport
         self._cube_rigid_body_handle = None  # dynamic control handle for cube rigid body
+        # Offset of cube relative to the mobile base at time of pick.
+        # Used during transport so the cube moves in exact lockstep with the
+        # base, avoiding the one-frame lag from gripper world-position queries.
+        self._cube_base_relative_offset = None
 
     def setup_mobile_base(self, stage):
         """Create the visual mobile base and configure the Franka for movement."""
@@ -283,18 +287,24 @@ class RidgebackFrankaMobile:
         pos = world_transform.ExtractTranslation()
         return np.array([pos[0], pos[1], pos[2]])
 
-    def _position_cube_at_gripper(self, stage):
-        """Place the cube at the gripper's current world position + offset."""
-        gripper_pos = self._get_gripper_world_position(stage)
-        if gripper_pos is not None:
-            cube_target = gripper_pos + self._gripper_to_cube_offset
+    def _position_cube_at_base(self, stage):
+        """Position the cube relative to the mobile base using a fixed offset.
+
+        This avoids reading the gripper world position (which lags one frame
+        behind base movement) and instead computes the cube position directly
+        from the base position + a pre-recorded offset. The cube therefore
+        moves in exact lockstep with the base — no dragging.
+        """
+        if self._cube_base_relative_offset is not None:
+            cube_target = self._current_position + self._cube_base_relative_offset
             self._set_cube_position(stage, cube_target)
-            return
-        self._set_cube_position(stage, np.array([
-            self._current_position[0],
-            self._current_position[1],
-            0.5
-        ]))
+        else:
+            # Fallback: place above the base center
+            self._set_cube_position(stage, np.array([
+                self._current_position[0],
+                self._current_position[1],
+                0.5
+            ]))
 
     def _set_cube_kinematic(self, stage, kinematic):
         """Enable or disable kinematic mode on the cube's rigid body.
@@ -556,6 +566,7 @@ class RidgebackFrankaMobile:
         stage = omni.usd.get_context().get_stage()
         self._set_cube_kinematic(stage, False)
         self._cube_rigid_body_handle = None
+        self._cube_base_relative_offset = None
 
         self._set_positions(self.start_position)
         self.franka_pick_place.reset()
@@ -601,8 +612,20 @@ class RidgebackFrankaMobile:
             pick_done = self.franka_pick_place.is_done()
 
             if cube_lifted or pick_done or self._pick_steps > 800:
-                gripper_pos = self._get_gripper_world_position(stage)
+                # Record the cube's position relative to the mobile base.
+                # During transport the cube will be placed at
+                # current_base_position + this offset each frame, so it
+                # moves in perfect lockstep with the base (no lag).
                 cube_pos = self._get_cube_position(stage)
+                if cube_pos is not None:
+                    self._cube_base_relative_offset = cube_pos - self._current_position
+                else:
+                    # Sensible default: slightly above the base
+                    self._cube_base_relative_offset = np.array([0.0, 0.0, 0.5])
+                print(f"[INFO] Cube-to-base offset recorded: {self._cube_base_relative_offset}")
+
+                # Also keep the gripper-to-cube offset for PLACE_CUBE phase
+                gripper_pos = self._get_gripper_world_position(stage)
                 if gripper_pos is not None and cube_pos is not None:
                     self._gripper_to_cube_offset = cube_pos - gripper_pos
                 elif gripper_pos is not None:
@@ -619,7 +642,8 @@ class RidgebackFrankaMobile:
 
         elif self._state == MobileState.RETURN_TO_START:
             reached = self._move_towards(self.start_position)
-            self._position_cube_at_gripper(stage)
+            # Use base-relative offset so cube moves in lockstep (no lag)
+            self._position_cube_at_base(stage)
 
             if reached or self._state_step_count > 2000:
                 print("[STATE] RETURN_TO_START -> WAIT_SETTLED_RETURN")
@@ -629,7 +653,7 @@ class RidgebackFrankaMobile:
 
         elif self._state == MobileState.WAIT_SETTLED_RETURN:
             self._settled_steps += 1
-            self._position_cube_at_gripper(stage)
+            self._position_cube_at_base(stage)
 
             if self._settled_steps > 30:
                 print("[STATE] WAIT_SETTLED_RETURN -> PLACE_CUBE")
@@ -646,10 +670,10 @@ class RidgebackFrankaMobile:
             # Delegate to FrankaPickPlace phases 4-6 (move to target, release, retract)
             self.franka_pick_place.forward(ik_method)
 
-            # Keep cube kinematically attached to gripper while arm moves to target (phase 4)
-            # Once gripper starts opening (phase 5+), restore dynamics and stop tracking
+            # Keep cube kinematically attached via base-relative offset while arm
+            # moves to target (phase 4). Once gripper opens (phase 5+), restore dynamics.
             if self.franka_pick_place._event < 5:
-                self._position_cube_at_gripper(stage)
+                self._position_cube_at_base(stage)
             else:
                 # Restore cube physics so it falls naturally when released
                 self._set_cube_kinematic(stage, False)
