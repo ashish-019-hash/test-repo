@@ -225,13 +225,30 @@ class RidgebackFrankaMobile:
         return None
 
     def _set_cube_position(self, stage, position):
-        """Set the cube prim's position using dynamic control (physics-aware) with USD fallback."""
+        """Set the cube prim's position using both USD and dynamic control.
+
+        When the cube is kinematic, USD transforms are authoritative (the
+        physics engine reads from USD, not the other way around).  We
+        therefore always write the USD translate first, then also push
+        the pose through dynamic control to keep both representations in
+        sync and zero out any residual velocity.
+        """
         if self._cube_prim_path is None:
             return
 
-        # Prefer dynamic control to move the rigid body directly in the physics engine.
-        # This avoids the physics solver fighting with USD translate updates (dragging).
-        moved = False
+        target = Gf.Vec3d(float(position[0]), float(position[1]), float(position[2]))
+
+        # 1. Always set USD translate (authoritative for kinematic bodies)
+        prim = stage.GetPrimAtPath(self._cube_prim_path)
+        if prim.IsValid():
+            xform = UsdGeom.Xformable(prim)
+            if xform:
+                for op in xform.GetOrderedXformOps():
+                    if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                        op.Set(target)
+                        break
+
+        # 2. Also push through dynamic control + zero velocity
         if self._dc is not None:
             if self._cube_rigid_body_handle is None:
                 try:
@@ -249,7 +266,6 @@ class RidgebackFrankaMobile:
                     )
                     transform.r = _dynamic_control.float4(0.0, 0.0, 0.0, 1.0)
                     self._dc.set_rigid_body_pose(self._cube_rigid_body_handle, transform)
-                    # Also zero out velocity so the cube doesn't drift
                     self._dc.set_rigid_body_linear_velocity(
                         self._cube_rigid_body_handle,
                         _dynamic_control.float3(0.0, 0.0, 0.0),
@@ -258,22 +274,8 @@ class RidgebackFrankaMobile:
                         self._cube_rigid_body_handle,
                         _dynamic_control.float3(0.0, 0.0, 0.0),
                     )
-                    moved = True
                 except Exception:
                     pass
-
-        # Fallback: set USD translate directly
-        if not moved:
-            prim = stage.GetPrimAtPath(self._cube_prim_path)
-            if not prim.IsValid():
-                return
-            xform = UsdGeom.Xformable(prim)
-            if not xform:
-                return
-            for op in xform.GetOrderedXformOps():
-                if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
-                    op.Set(Gf.Vec3d(position[0], position[1], position[2]))
-                    return
 
     def _find_gripper_prim(self, stage):
         """Find the Franka gripper/hand prim for tracking during transport."""
@@ -657,24 +659,23 @@ class RidgebackFrankaMobile:
             pick_done = self.franka_pick_place.is_done()
 
             if grasp_lift_done or cube_lifted or pick_done or self._pick_steps > 1500:
-                # Record the cube's position relative to the mobile base.
-                # During transport the cube will be placed at
-                # current_base_position + this offset each frame, so it
-                # moves in perfect lockstep with the base (no lag).
-                cube_pos = self._get_cube_position(stage)
-                if cube_pos is not None:
-                    self._cube_base_relative_offset = cube_pos - self._current_position
-                else:
-                    # Sensible default: slightly above the base
-                    self._cube_base_relative_offset = np.array([0.0, 0.0, 0.5])
-                print(f"[INFO] Cube-to-base offset recorded: {self._cube_base_relative_offset}")
-
-                # Also keep the gripper-to-cube offset for PLACE_CUBE phase
+                # Compute the transport offset from the GRIPPER position,
+                # not the cube position.  At this moment the base is stopped
+                # (we finished MOVE_TO_CUBE already), so the gripper's
+                # physics position is accurate — no one-frame lag.
                 gripper_pos = self._get_gripper_world_position(stage)
-                if gripper_pos is not None and cube_pos is not None:
-                    self._gripper_to_cube_offset = cube_pos - gripper_pos
-                elif gripper_pos is not None:
-                    self._gripper_to_cube_offset = np.array([0.0, 0.0, -0.04])
+                if gripper_pos is not None:
+                    # Cube hangs slightly below the gripper center
+                    cube_transport_pos = gripper_pos + np.array([0.0, 0.0, -0.04])
+                    self._cube_base_relative_offset = cube_transport_pos - self._current_position
+                else:
+                    # Fallback: use cube physics position if gripper unknown
+                    cube_pos = self._get_cube_position(stage)
+                    if cube_pos is not None:
+                        self._cube_base_relative_offset = cube_pos - self._current_position
+                    else:
+                        self._cube_base_relative_offset = np.array([0.0, 0.0, 0.5])
+                print(f"[INFO] Cube-to-base offset recorded: {self._cube_base_relative_offset}")
 
                 # Make cube kinematic so it can be repositioned without
                 # the physics engine fighting the transport updates.
