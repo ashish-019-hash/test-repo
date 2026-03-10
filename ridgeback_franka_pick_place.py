@@ -12,21 +12,37 @@ Usage:
     python ridgeback_franka_pick_place.py [--cube-offset 3.0] [--ik-method damped-least-squares]
 """
 
+from __future__ import annotations
+
+import argparse
+
+parser = argparse.ArgumentParser(
+    description="Ridgeback Franka Mobile Pick-and-Place in Isaac Sim Warehouse"
+)
+parser.add_argument("--device", type=str, choices=["cpu", "cuda"], default="cpu", help="Simulation device")
+parser.add_argument(
+    "--ik-method",
+    type=str,
+    choices=["singular-value-decomposition", "pseudoinverse", "transpose", "damped-least-squares"],
+    default="damped-least-squares",
+    help="Differential inverse kinematics method for Franka arm",
+)
+parser.add_argument(
+    "--cube-offset", type=float, default=3.0,
+    help="Position along +x axis where cube/table are placed for Ridgeback Franka",
+)
+args, _ = parser.parse_known_args()
+
 from isaacsim import SimulationApp
+
 simulation_app = SimulationApp({"headless": False})
 
-import carb
-import math
 import numpy as np
-import os
-import argparse
-import time
 from enum import Enum
-import omni.appwindow
 import omni.usd
 import omni.timeline
 
-from isaacsim.core.api import World
+from isaacsim.core.simulation_manager import SimulationManager
 from isaacsim.core.utils.prims import define_prim
 from isaacsim.storage.native import get_assets_root_path
 from isaacsim.robot.manipulators.examples.franka import FrankaPickPlace
@@ -41,6 +57,8 @@ try:
 except ImportError:
     CORE_AVAILABLE = False
     print("[WARNING] omni.isaac.core not fully available")
+
+import carb
 
 
 class MobileState(Enum):
@@ -692,158 +710,70 @@ class RidgebackFrankaMobile:
         return self._state == MobileState.DONE
 
 
-class RidgebackFrankaRunner:
-    """Simplified runner that only uses Ridgeback Franka in a warehouse environment."""
-
-    def __init__(
-        self,
-        franka_pick_place,
-        physics_dt,
-        render_dt,
-        cube_offset=3.0,
-        ik_method="damped-least-squares",
-    ):
-        self._world = World(
-            stage_units_in_meters=1.0,
-            physics_dt=physics_dt,
-            rendering_dt=render_dt,
-        )
-
-        assets_root_path = get_assets_root_path()
-        if assets_root_path is None:
-            carb.log_error("Could not find Isaac Sim assets folder")
-
-        # Load warehouse environment
-        prim = define_prim("/World/Warehouse", "Xform")
-        asset_path = assets_root_path + "/Isaac/Environments/Simple_Warehouse/warehouse_multiple_shelves.usd"
-        prim.GetReferences().AddReference(asset_path)
-
-        self._cube_offset = cube_offset
-        self._ik_method = ik_method
-
-        self._stage = omni.usd.get_context().get_stage()
-        self._ridgeback_franka = RidgebackFrankaMobile(
-            franka_pick_place, cube_offset=cube_offset
-        )
-        self._ridgeback_franka.setup_mobile_base(self._stage)
-        print("[Ridgeback] Ridgeback Franka mobile manipulator added to scene.")
-
-        self._timeline = omni.timeline.get_timeline_interface()
-
-        self._pick_place_active = False
-        self._pick_place_done = False
-        self.needs_reset = False
-        self.first_step = True
-
-    def setup(self) -> None:
-        self._appwindow = omni.appwindow.get_default_app_window()
-        self._input = carb.input.acquire_input_interface()
-        self._keyboard = self._appwindow.get_keyboard()
-        self._sub_keyboard = self._input.subscribe_to_keyboard_events(
-            self._keyboard, self._sub_keyboard_event
-        )
-        self._world.add_physics_callback("ridgeback_franka_forward", callback_fn=self.on_physics_step)
-
-    def on_physics_step(self, step_size) -> None:
-        if self.first_step:
-            self.first_step = False
-            self._pick_place_active = True
-            self._ridgeback_franka.reset()
-            print("[Ridgeback] Starting pick-and-place cycle...")
-            return
-
-        if self.needs_reset:
-            return
-
-        if self._pick_place_active:
-            self._ridgeback_franka.forward(self._ik_method)
-            if self._ridgeback_franka.is_done():
-                self._pick_place_active = False
-                self._pick_place_done = True
-                print("[Ridgeback] Pick-and-place complete!")
-
-    def run(self) -> None:
-        print("")
-        print("=" * 60)
-        print("  Ridgeback Franka Mobile Pick-and-Place")
-        print("=" * 60)
-        print(f"  Cube offset: {self._cube_offset}m")
-        print(f"  IK method: {self._ik_method}")
-        print("  Flow: Drive to cube -> Pick -> Drive back -> Place")
-        print("  Press SPACE to reset, ESC to quit.")
-        print("=" * 60)
-        print("")
-
-        while simulation_app.is_running():
-            simulation_app.update()
-
-            if not self._timeline.is_playing():
-                self.needs_reset = True
-                continue
-
-            if self.needs_reset:
-                self._ridgeback_franka.reset()
-                self._pick_place_active = True
-                self._pick_place_done = False
-                self.needs_reset = False
-                self.first_step = True
-                print("[Ridgeback] Episode reset. Starting new pick-and-place cycle.")
-                continue
-
-        return
-
-    def _sub_keyboard_event(self, event, *args, **kwargs) -> bool:
-        if event.type == carb.input.KeyboardEventType.KEY_PRESS:
-            if event.input.name == "SPACE":
-                print("[Ridgeback] Resetting episode...")
-                self.needs_reset = True
-            elif event.input.name == "ESCAPE":
-                simulation_app.close()
-        return True
-
-
 def main():
-    parser = argparse.ArgumentParser(
-        description="Ridgeback Franka Mobile Pick-and-Place in Isaac Sim Warehouse"
-    )
-    parser.add_argument(
-        "--cube-offset", type=float, default=3.0,
-        help="Position along +x axis where cube/table are placed for Ridgeback Franka"
-    )
-    parser.add_argument(
-        "--ik-method",
-        type=str,
-        choices=["singular-value-decomposition", "pseudoinverse", "transpose", "damped-least-squares"],
-        default="damped-least-squares",
-        help="Differential inverse kinematics method for Franka arm",
-    )
-    args = parser.parse_args()
-
-    physics_dt = 1 / 200.0
-    render_dt = 1 / 60.0
-
-    franka_pick_place = FrankaPickPlace()
-    franka_pick_place.setup_scene()
+    print("Starting Ridgeback Franka Mobile Pick-and-Place Demo")
+    SimulationManager.set_physics_sim_device(args.device)
     simulation_app.update()
 
-    runner = RidgebackFrankaRunner(
-        franka_pick_place=franka_pick_place,
-        physics_dt=physics_dt,
-        render_dt=render_dt,
-        cube_offset=args.cube_offset,
-        ik_method=args.ik_method,
-    )
+    # --- Set up FrankaPickPlace scene (creates Franka + cube + table) ---
+    pick_place = FrankaPickPlace()
+    pick_place.setup_scene()
     simulation_app.update()
 
-    timeline = omni.timeline.get_timeline_interface()
-    timeline.play()
+    # --- Load warehouse environment ---
+    assets_root_path = get_assets_root_path()
+    if assets_root_path is None:
+        carb.log_error("Could not find Isaac Sim assets folder")
+    prim = define_prim("/World/Warehouse", "Xform")
+    asset_path = assets_root_path + "/Isaac/Environments/Simple_Warehouse/warehouse_multiple_shelves.usd"
+    prim.GetReferences().AddReference(asset_path)
     simulation_app.update()
 
-    runner.setup()
+    # --- Set up Ridgeback mobile base around the Franka ---
+    stage = omni.usd.get_context().get_stage()
+    ridgeback = RidgebackFrankaMobile(pick_place, cube_offset=args.cube_offset)
+    ridgeback.setup_mobile_base(stage)
+    print("[Ridgeback] Ridgeback Franka mobile manipulator added to scene.")
     simulation_app.update()
-    runner.run()
-    simulation_app.close()
+
+    # --- Play the simulation ---
+    omni.timeline.get_timeline_interface().play()
+    simulation_app.update()
+
+    reset_needed = True
+    task_completed = False
+
+    print("")
+    print("=" * 60)
+    print("  Ridgeback Franka Mobile Pick-and-Place")
+    print("=" * 60)
+    print(f"  Cube offset: {args.cube_offset}m")
+    print(f"  IK method: {args.ik_method}")
+    print("  Flow: Drive to cube -> Pick -> Drive back -> Place")
+    print("=" * 60)
+    print("")
+
+    print("Starting pick-and-place execution")
+    while simulation_app.is_running():
+        if SimulationManager.is_simulating() and not task_completed:
+            if reset_needed:
+                ridgeback.reset()
+                reset_needed = False
+
+            # Execute one step of the mobile pick-and-place operation
+            ridgeback.forward(args.ik_method)
+
+        if ridgeback.is_done() and not task_completed:
+            print("done picking and placing")
+            task_completed = True
+
+        simulation_app.update()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        simulation_app.close()
