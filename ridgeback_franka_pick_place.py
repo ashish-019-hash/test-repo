@@ -1,0 +1,709 @@
+"""
+Ridgeback Franka Mobile Pick-and-Place in Isaac Sim.
+
+A Franka Emika Panda arm mounted on a visual Ridgeback mobile base performs
+a complete pick-and-place cycle inside a warehouse environment:
+  1. Drive to the cube/table location
+  2. Pick the cube using IK-based FrankaPickPlace
+  3. Drive back to the start position carrying the cube
+  4. Place the cube at the start position
+
+Usage:
+    python ridgeback_franka_pick_place.py [--cube-offset 3.0] [--ik-method damped-least-squares]
+"""
+
+from isaacsim import SimulationApp
+simulation_app = SimulationApp({"headless": False})
+
+import carb
+import math
+import numpy as np
+import os
+import argparse
+import time
+from enum import Enum
+import omni.appwindow
+import omni.usd
+import omni.timeline
+
+from isaacsim.core.api import World
+from isaacsim.core.utils.prims import define_prim
+from isaacsim.storage.native import get_assets_root_path
+from isaacsim.robot.manipulators.examples.franka import FrankaPickPlace
+from omni.isaac.dynamic_control import _dynamic_control
+from pxr import UsdGeom, Gf, UsdPhysics, PhysxSchema, Usd
+
+try:
+    from omni.isaac.core.prims import XFormPrim
+    from omni.isaac.core.articulations import Articulation
+    from omni.isaac.core.robots import Robot
+    CORE_AVAILABLE = True
+except ImportError:
+    CORE_AVAILABLE = False
+    print("[WARNING] omni.isaac.core not fully available")
+
+
+class MobileState(Enum):
+    INIT = 0
+    MOVE_TO_CUBE = 1
+    WAIT_SETTLED = 2
+    PICK_CUBE = 3
+    RETURN_TO_START = 4
+    WAIT_SETTLED_RETURN = 5
+    PLACE_CUBE = 6
+    DONE = 7
+
+
+class RidgebackFrankaMobile:
+    """Ridgeback Franka mobile manipulator with movement before pick and place.
+
+    Wraps FrankaPickPlace with a visual Ridgeback mobile base. The base drives
+    to the cube, the Franka arm picks it, then the base returns to start.
+    """
+
+    def __init__(self, franka_pick_place: FrankaPickPlace, cube_offset: float = 3.0):
+        self.franka_pick_place = franka_pick_place
+        self.cube_offset = cube_offset
+
+        self._mobile_base_prim_path = "/World/RidgebackBase"
+        self._state = MobileState.INIT
+        self._step_count = 0
+        self._state_step_count = 0
+        self._settled_steps = 0
+
+        self.start_position = np.array([0.0, 0.0, 0.0])
+        self.table_position = np.array([cube_offset, 0.0, 0.0])
+        self._current_position = self.start_position.copy()
+        self._move_speed = 0.01
+
+        self._franka_prim_path = None
+        self._dc = None
+        self._articulation_handle = None
+        self._franka_robot = None
+        self._franka_xform = None
+        self._scene_prim_originals = {}
+        self._cube_prim_path = None
+        self._gripper_prim_path = None
+        self._gripper_to_cube_offset = np.array([0.0, 0.0, -0.04])
+        self._pick_steps = 0
+
+    def setup_mobile_base(self, stage):
+        """Create the visual mobile base and configure the Franka for movement."""
+        self._franka_prim_path = self._find_franka_prim(stage)
+        if self._franka_prim_path is None:
+            print("[ERROR] Could not find Franka robot in scene!")
+            return None
+
+        print(f"[INFO] Found Franka robot at: {self._franka_prim_path}")
+
+        self._set_franka_floating_base(stage)
+
+        cube_prim = UsdGeom.Cube.Define(stage, self._mobile_base_prim_path)
+        cube_prim.GetSizeAttr().Set(0.5)
+
+        xform = UsdGeom.Xformable(cube_prim)
+        scale_op = xform.AddScaleOp()
+        scale_op.Set(Gf.Vec3f(1.0, 0.7, 0.4))
+
+        translate_op = xform.AddTranslateOp()
+        translate_op.Set(Gf.Vec3d(self.start_position[0], self.start_position[1], 0.1))
+
+        cube_prim.GetDisplayColorAttr().Set([Gf.Vec3f(0.3, 0.3, 0.3)])
+
+        self._set_franka_usd_position(stage, self.start_position)
+
+        self._discover_scene_prims(stage)
+        self._apply_scene_offset(stage)
+        self._find_cube_prim(stage)
+        self._find_gripper_prim(stage)
+
+        print(f"[INFO] Created Ridgeback mobile base at start position {self.start_position}")
+        print(f"[INFO] Cube/table offset to x={self.cube_offset}m, round-trip travel: {self.cube_offset * 2:.2f}m")
+
+        return self._mobile_base_prim_path
+
+    def _discover_scene_prims(self, stage):
+        """Find cube/table scene prims and cache their original positions."""
+        franka_path = self._franka_prim_path or "/World/Franka"
+        skip_prefixes = (franka_path, self._mobile_base_prim_path, "/World/Warehouse")
+        keywords = ["cube", "table", "block", "target", "goal", "object"]
+
+        self._scene_prim_originals = {}
+        for prim in stage.Traverse():
+            path = str(prim.GetPath())
+            if any(path.startswith(p) for p in skip_prefixes):
+                continue
+            name = prim.GetName().lower()
+            if not any(kw in name for kw in keywords):
+                continue
+            try:
+                xform = UsdGeom.Xformable(prim)
+                if not xform:
+                    continue
+                orig = Gf.Vec3d(0, 0, 0)
+                for op in xform.GetOrderedXformOps():
+                    if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                        orig = Gf.Vec3d(op.Get())
+                        break
+                self._scene_prim_originals[path] = orig
+                print(f"[INFO] Cached scene prim {path} at original position {orig}")
+            except Exception as e:
+                print(f"[WARNING] Could not read {path}: {e}")
+
+    def _find_cube_prim(self, stage):
+        """Identify the graspable cube prim from cached scene prims."""
+        for path in self._scene_prim_originals:
+            prim = stage.GetPrimAtPath(path)
+            if prim.IsValid():
+                name = prim.GetName().lower()
+                if "cube" in name or "block" in name:
+                    self._cube_prim_path = path
+                    print(f"[INFO] Identified graspable cube prim: {path}")
+                    return
+        if self._scene_prim_originals:
+            self._cube_prim_path = next(iter(self._scene_prim_originals))
+            print(f"[INFO] Using first scene prim as cube: {self._cube_prim_path}")
+
+    def _get_cube_position(self, stage):
+        """Read the cube prim's current translate from USD."""
+        if self._cube_prim_path is None:
+            return None
+        prim = stage.GetPrimAtPath(self._cube_prim_path)
+        if not prim.IsValid():
+            return None
+        xform = UsdGeom.Xformable(prim)
+        if not xform:
+            return None
+        for op in xform.GetOrderedXformOps():
+            if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                v = op.Get()
+                return np.array([v[0], v[1], v[2]])
+        return None
+
+    def _set_cube_position(self, stage, position):
+        """Set the cube prim's translate in USD."""
+        if self._cube_prim_path is None:
+            return
+        prim = stage.GetPrimAtPath(self._cube_prim_path)
+        if not prim.IsValid():
+            return
+        xform = UsdGeom.Xformable(prim)
+        if not xform:
+            return
+        for op in xform.GetOrderedXformOps():
+            if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                op.Set(Gf.Vec3d(position[0], position[1], position[2]))
+                return
+
+    def _find_gripper_prim(self, stage):
+        """Find the Franka gripper/hand prim for tracking during transport."""
+        if self._franka_prim_path is None:
+            return
+        candidates = [
+            f"{self._franka_prim_path}/panda_hand",
+            f"{self._franka_prim_path}/panda_link8",
+            f"{self._franka_prim_path}/panda_link7",
+        ]
+        for path in candidates:
+            prim = stage.GetPrimAtPath(path)
+            if prim.IsValid():
+                self._gripper_prim_path = path
+                print(f"[INFO] Found gripper prim: {path}")
+                return
+        franka_prim = stage.GetPrimAtPath(self._franka_prim_path)
+        if franka_prim.IsValid():
+            for prim in Usd.PrimRange(franka_prim):
+                name = prim.GetName().lower()
+                if "hand" in name or "gripper" in name or "tool" in name:
+                    self._gripper_prim_path = str(prim.GetPath())
+                    print(f"[INFO] Found gripper prim by search: {self._gripper_prim_path}")
+                    return
+        print("[WARNING] Could not find gripper prim, cube transport may not track correctly")
+
+    def _get_gripper_world_position(self, stage):
+        """Get the gripper's world position via composed USD transforms."""
+        if self._gripper_prim_path is None:
+            return None
+        prim = stage.GetPrimAtPath(self._gripper_prim_path)
+        if not prim.IsValid():
+            return None
+        xform_cache = UsdGeom.XformCache(Usd.TimeCode.Default())
+        world_transform = xform_cache.GetLocalToWorldTransform(prim)
+        pos = world_transform.ExtractTranslation()
+        return np.array([pos[0], pos[1], pos[2]])
+
+    def _position_cube_at_gripper(self, stage):
+        """Place the cube at the gripper's current world position + offset."""
+        gripper_pos = self._get_gripper_world_position(stage)
+        if gripper_pos is not None:
+            cube_target = gripper_pos + self._gripper_to_cube_offset
+            self._set_cube_position(stage, cube_target)
+            return
+        self._set_cube_position(stage, np.array([
+            self._current_position[0],
+            self._current_position[1],
+            0.5
+        ]))
+
+    def _is_cube_lifted(self, stage):
+        """Check if the cube has been lifted above its original height."""
+        pos = self._get_cube_position(stage)
+        if pos is None:
+            return False
+        orig = self._scene_prim_originals.get(self._cube_prim_path)
+        if orig is None:
+            return False
+        return pos[2] > orig[2] + 0.05
+
+    def _apply_scene_offset(self, stage):
+        """Set scene prims to original_position + cube_offset along x. Idempotent."""
+        for path, orig in self._scene_prim_originals.items():
+            prim = stage.GetPrimAtPath(path)
+            if not prim.IsValid():
+                continue
+            try:
+                xform = UsdGeom.Xformable(prim)
+                if not xform:
+                    continue
+                target = Gf.Vec3d(orig[0] + self.cube_offset, orig[1], orig[2])
+                applied = False
+                for op in xform.GetOrderedXformOps():
+                    if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                        op.Set(target)
+                        applied = True
+                        break
+                if not applied:
+                    xform.AddTranslateOp().Set(target)
+            except Exception as e:
+                print(f"[WARNING] Could not offset {path}: {e}")
+
+    def _find_franka_prim(self, stage):
+        """Find the Franka robot prim in the scene."""
+        possible_paths = ["/World/Franka", "/World/robot", "/World/panda", "/World/franka"]
+
+        for path in possible_paths:
+            prim = stage.GetPrimAtPath(path)
+            if prim.IsValid():
+                return path
+
+        for prim in stage.Traverse():
+            path = str(prim.GetPath())
+            if "/World/" in path and prim.IsA(UsdGeom.Xform):
+                if PhysxSchema.PhysxArticulationAPI.Get(stage, path):
+                    return path
+                children = [c.GetName() for c in prim.GetChildren()]
+                if any("link" in c.lower() or "panda" in c.lower() for c in children):
+                    return path
+
+        return "/World/Franka"
+
+    def _set_franka_floating_base(self, stage):
+        """Configure the Franka articulation to have a floating base."""
+        if self._franka_prim_path is None:
+            return
+
+        franka_prim = stage.GetPrimAtPath(self._franka_prim_path)
+        if not franka_prim.IsValid():
+            return
+
+        prims_to_check = [franka_prim] + list(Usd.PrimRange(franka_prim))
+
+        for prim in prims_to_check:
+            prim_path = str(prim.GetPath())
+            articulation_api = PhysxSchema.PhysxArticulationAPI.Get(stage, prim_path)
+
+            if articulation_api:
+                try:
+                    fix_base_attr = articulation_api.GetFixBaseAttr()
+                    if fix_base_attr:
+                        fix_base_attr.Set(False)
+                    else:
+                        articulation_api.CreateFixBaseAttr(False)
+                except Exception as e:
+                    print(f"[WARNING] Could not modify fixBase: {e}")
+
+    def _set_franka_usd_position(self, stage, position):
+        """Set the Franka's position using USD transforms."""
+        if self._franka_prim_path is None:
+            return
+
+        franka_prim = stage.GetPrimAtPath(self._franka_prim_path)
+        if franka_prim.IsValid():
+            xform = UsdGeom.Xformable(franka_prim)
+            xform.ClearXformOpOrder()
+            translate_op = xform.AddTranslateOp()
+            translate_op.Set(Gf.Vec3d(position[0], position[1], position[2]))
+
+    def _move_towards(self, target_pos):
+        """Move both the mobile base and Franka robot towards target position."""
+        direction = target_pos - self._current_position
+        direction[2] = 0
+        distance = np.linalg.norm(direction[:2])
+
+        if distance < 0.02:
+            self._current_position = target_pos.copy()
+            self._set_positions(target_pos)
+            return True
+
+        direction = direction / distance
+        step = direction * min(self._move_speed, distance)
+        self._current_position = self._current_position + step
+        self._current_position[2] = 0
+
+        self._set_positions(self._current_position)
+        return False
+
+    def _set_positions(self, position):
+        """Set positions of both the mobile base and Franka robot together."""
+        stage = omni.usd.get_context().get_stage()
+
+        base_prim = stage.GetPrimAtPath(self._mobile_base_prim_path)
+        if base_prim.IsValid():
+            xform = UsdGeom.Xformable(base_prim)
+            ops = xform.GetOrderedXformOps()
+            for op in ops:
+                if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                    op.Set(Gf.Vec3d(position[0], position[1], 0.1))
+                    break
+
+        moved = False
+
+        if self._franka_robot is not None and not moved:
+            try:
+                pos = np.array([position[0], position[1], 0.0])
+                orient = np.array([1.0, 0.0, 0.0, 0.0])
+                self._franka_robot.set_world_pose(position=pos, orientation=orient)
+                moved = True
+            except Exception:
+                pass
+
+        if self._franka_xform is not None and not moved:
+            try:
+                pos = np.array([position[0], position[1], 0.0])
+                orient = np.array([1.0, 0.0, 0.0, 0.0])
+                self._franka_xform.set_world_pose(position=pos, orientation=orient)
+                moved = True
+            except Exception:
+                pass
+
+        if self._dc is not None and self._articulation_handle is not None and not moved:
+            try:
+                root_body = self._dc.get_articulation_root_body(self._articulation_handle)
+                if root_body != 0:
+                    transform = _dynamic_control.Transform()
+                    transform.p = _dynamic_control.float3(position[0], position[1], 0.0)
+                    transform.r = _dynamic_control.float4(0.0, 0.0, 0.0, 1.0)
+                    self._dc.set_rigid_body_pose(root_body, transform)
+                    moved = True
+            except Exception:
+                pass
+
+        if not moved:
+            franka_prim = stage.GetPrimAtPath(self._franka_prim_path)
+            if franka_prim.IsValid():
+                xform = UsdGeom.Xformable(franka_prim)
+                ops = xform.GetOrderedXformOps()
+                for op in ops:
+                    if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                        op.Set(Gf.Vec3d(position[0], position[1], 0.0))
+                        break
+
+    def reset(self):
+        """Reset the mobile manipulator to start position."""
+        self._state = MobileState.INIT
+        self._step_count = 0
+        self._state_step_count = 0
+        self._settled_steps = 0
+        self._current_position = self.start_position.copy()
+
+        if CORE_AVAILABLE and self._franka_prim_path is not None:
+            if self._franka_robot is None:
+                try:
+                    self._franka_robot = Robot(prim_path=self._franka_prim_path)
+                    self._franka_robot.initialize()
+                except Exception:
+                    self._franka_robot = None
+
+            if self._franka_robot is None:
+                try:
+                    self._franka_robot = Articulation(prim_path=self._franka_prim_path)
+                    self._franka_robot.initialize()
+                except Exception:
+                    self._franka_robot = None
+
+            if self._franka_xform is None:
+                try:
+                    self._franka_xform = XFormPrim(prim_path=self._franka_prim_path)
+                except Exception:
+                    self._franka_xform = None
+
+        if self._dc is None:
+            try:
+                self._dc = _dynamic_control.acquire_dynamic_control_interface()
+            except Exception:
+                self._dc = None
+
+        if self._dc is not None and self._articulation_handle is None and self._franka_prim_path is not None:
+            try:
+                self._articulation_handle = self._dc.get_articulation(self._franka_prim_path)
+                if self._articulation_handle == 0:
+                    self._articulation_handle = None
+            except Exception:
+                self._articulation_handle = None
+
+        self._set_positions(self.start_position)
+        self.franka_pick_place.reset()
+        self._apply_scene_offset(omni.usd.get_context().get_stage())
+
+        print(f"[INFO] Ridgeback Franka reset to start position {self.start_position}")
+
+    def forward(self, ik_method: str):
+        self._step_count += 1
+        self._state_step_count += 1
+        stage = omni.usd.get_context().get_stage()
+
+        if self._state == MobileState.INIT:
+            print("[STATE] INIT -> MOVE_TO_CUBE")
+            self._state = MobileState.MOVE_TO_CUBE
+            self._state_step_count = 0
+
+        elif self._state == MobileState.MOVE_TO_CUBE:
+            reached = self._move_towards(self.table_position)
+
+            if reached or self._state_step_count > 2000:
+                print("[STATE] MOVE_TO_CUBE -> WAIT_SETTLED")
+                self._state = MobileState.WAIT_SETTLED
+                self._state_step_count = 0
+                self._settled_steps = 0
+
+        elif self._state == MobileState.WAIT_SETTLED:
+            self._settled_steps += 1
+
+            if self._settled_steps > 30:
+                print("[STATE] WAIT_SETTLED -> PICK_CUBE")
+                self._state = MobileState.PICK_CUBE
+                self._state_step_count = 0
+                self._pick_steps = 0
+                self.franka_pick_place.reset()
+                self._apply_scene_offset(stage)
+
+        elif self._state == MobileState.PICK_CUBE:
+            self.franka_pick_place.forward(ik_method)
+            self._pick_steps += 1
+
+            cube_lifted = self._is_cube_lifted(stage)
+            pick_done = self.franka_pick_place.is_done()
+
+            if cube_lifted or pick_done or self._pick_steps > 800:
+                gripper_pos = self._get_gripper_world_position(stage)
+                cube_pos = self._get_cube_position(stage)
+                if gripper_pos is not None and cube_pos is not None:
+                    self._gripper_to_cube_offset = cube_pos - gripper_pos
+                elif gripper_pos is not None:
+                    self._gripper_to_cube_offset = np.array([0.0, 0.0, -0.04])
+                reason = "lifted" if cube_lifted else ("full-cycle" if pick_done else "timeout")
+                print(f"[STATE] PICK_CUBE -> RETURN_TO_START ({reason} after {self._pick_steps} steps)")
+                self._state = MobileState.RETURN_TO_START
+                self._state_step_count = 0
+
+        elif self._state == MobileState.RETURN_TO_START:
+            reached = self._move_towards(self.start_position)
+            self._position_cube_at_gripper(stage)
+
+            if reached or self._state_step_count > 2000:
+                print("[STATE] RETURN_TO_START -> WAIT_SETTLED_RETURN")
+                self._state = MobileState.WAIT_SETTLED_RETURN
+                self._state_step_count = 0
+                self._settled_steps = 0
+
+        elif self._state == MobileState.WAIT_SETTLED_RETURN:
+            self._settled_steps += 1
+            self._position_cube_at_gripper(stage)
+
+            if self._settled_steps > 30:
+                print("[STATE] WAIT_SETTLED_RETURN -> PLACE_CUBE")
+                self._state = MobileState.PLACE_CUBE
+                self._state_step_count = 0
+                self._place_steps = 0
+                # Reset FrankaPickPlace state machine to Phase 4 (move to target)
+                # so it executes phases 4 (move), 5 (release), 6 (retract)
+                self.franka_pick_place._event = 4
+                self.franka_pick_place._step = 0
+
+        elif self._state == MobileState.PLACE_CUBE:
+            self._place_steps += 1
+            # Delegate to FrankaPickPlace phases 4-6 (move to target, release, retract)
+            self.franka_pick_place.forward(ik_method)
+
+            # Keep cube kinematically attached to gripper while arm moves to target (phase 4)
+            # Once gripper starts opening (phase 5+), stop tracking so cube stays in place
+            if self.franka_pick_place._event < 5:
+                self._position_cube_at_gripper(stage)
+
+            if self.franka_pick_place.is_done():
+                print("[STATE] PLACE_CUBE -> DONE")
+                self._state = MobileState.DONE
+
+        if self._step_count % 200 == 0:
+            print(f"[DEBUG] Step {self._step_count}, State: {self._state.name}")
+
+    def is_done(self):
+        """Check if the entire task is complete."""
+        return self._state == MobileState.DONE
+
+
+class RidgebackFrankaRunner:
+    """Simplified runner that only uses Ridgeback Franka in a warehouse environment."""
+
+    def __init__(
+        self,
+        franka_pick_place,
+        physics_dt,
+        render_dt,
+        cube_offset=3.0,
+        ik_method="damped-least-squares",
+    ):
+        self._world = World(
+            stage_units_in_meters=1.0,
+            physics_dt=physics_dt,
+            rendering_dt=render_dt,
+        )
+
+        assets_root_path = get_assets_root_path()
+        if assets_root_path is None:
+            carb.log_error("Could not find Isaac Sim assets folder")
+
+        # Load warehouse environment
+        prim = define_prim("/World/Warehouse", "Xform")
+        asset_path = assets_root_path + "/Isaac/Environments/Simple_Warehouse/warehouse_multiple_shelves.usd"
+        prim.GetReferences().AddReference(asset_path)
+
+        self._cube_offset = cube_offset
+        self._ik_method = ik_method
+
+        self._stage = omni.usd.get_context().get_stage()
+        self._ridgeback_franka = RidgebackFrankaMobile(
+            franka_pick_place, cube_offset=cube_offset
+        )
+        self._ridgeback_franka.setup_mobile_base(self._stage)
+        print("[Ridgeback] Ridgeback Franka mobile manipulator added to scene.")
+
+        self._timeline = omni.timeline.get_timeline_interface()
+
+        self._pick_place_active = False
+        self._pick_place_done = False
+        self.needs_reset = False
+        self.first_step = True
+
+    def setup(self) -> None:
+        self._appwindow = omni.appwindow.get_default_app_window()
+        self._input = carb.input.acquire_input_interface()
+        self._keyboard = self._appwindow.get_keyboard()
+        self._sub_keyboard = self._input.subscribe_to_keyboard_events(
+            self._keyboard, self._sub_keyboard_event
+        )
+        self._world.add_physics_callback("ridgeback_franka_forward", callback_fn=self.on_physics_step)
+
+    def on_physics_step(self, step_size) -> None:
+        if self.first_step:
+            self.first_step = False
+            self._pick_place_active = True
+            self._ridgeback_franka.reset()
+            print("[Ridgeback] Starting pick-and-place cycle...")
+            return
+
+        if self.needs_reset:
+            return
+
+        if self._pick_place_active:
+            self._ridgeback_franka.forward(self._ik_method)
+            if self._ridgeback_franka.is_done():
+                self._pick_place_active = False
+                self._pick_place_done = True
+                print("[Ridgeback] Pick-and-place complete!")
+
+    def run(self) -> None:
+        print("")
+        print("=" * 60)
+        print("  Ridgeback Franka Mobile Pick-and-Place")
+        print("=" * 60)
+        print(f"  Cube offset: {self._cube_offset}m")
+        print(f"  IK method: {self._ik_method}")
+        print("  Flow: Drive to cube -> Pick -> Drive back -> Place")
+        print("  Press SPACE to reset, ESC to quit.")
+        print("=" * 60)
+        print("")
+
+        while simulation_app.is_running():
+            simulation_app.update()
+
+            if not self._timeline.is_playing():
+                self.needs_reset = True
+                continue
+
+            if self.needs_reset:
+                self._ridgeback_franka.reset()
+                self._pick_place_active = True
+                self._pick_place_done = False
+                self.needs_reset = False
+                self.first_step = True
+                print("[Ridgeback] Episode reset. Starting new pick-and-place cycle.")
+                continue
+
+        return
+
+    def _sub_keyboard_event(self, event, *args, **kwargs) -> bool:
+        if event.type == carb.input.KeyboardEventType.KEY_PRESS:
+            if event.input.name == "SPACE":
+                print("[Ridgeback] Resetting episode...")
+                self.needs_reset = True
+            elif event.input.name == "ESCAPE":
+                simulation_app.close()
+        return True
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Ridgeback Franka Mobile Pick-and-Place in Isaac Sim Warehouse"
+    )
+    parser.add_argument(
+        "--cube-offset", type=float, default=3.0,
+        help="Position along +x axis where cube/table are placed for Ridgeback Franka"
+    )
+    parser.add_argument(
+        "--ik-method",
+        type=str,
+        choices=["singular-value-decomposition", "pseudoinverse", "transpose", "damped-least-squares"],
+        default="damped-least-squares",
+        help="Differential inverse kinematics method for Franka arm",
+    )
+    args = parser.parse_args()
+
+    physics_dt = 1 / 200.0
+    render_dt = 1 / 60.0
+
+    franka_pick_place = FrankaPickPlace()
+    franka_pick_place.setup_scene()
+    simulation_app.update()
+
+    runner = RidgebackFrankaRunner(
+        franka_pick_place=franka_pick_place,
+        physics_dt=physics_dt,
+        render_dt=render_dt,
+        cube_offset=args.cube_offset,
+        ik_method=args.ik_method,
+    )
+    simulation_app.update()
+
+    timeline = omni.timeline.get_timeline_interface()
+    timeline.play()
+    simulation_app.update()
+
+    runner.setup()
+    simulation_app.update()
+    runner.run()
+    simulation_app.close()
+
+
+if __name__ == "__main__":
+    main()
