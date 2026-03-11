@@ -46,6 +46,30 @@ from isaacsim.storage.native import get_assets_root_path
 from typing import List, Optional
 
 
+# ---------------------------------------------------------------------------
+# Ridgeback Franka workspace parameters
+# ---------------------------------------------------------------------------
+# The Clearpath Ridgeback mobile base elevates the Franka arm base ~0.5 m
+# above the ground plane.  The standard Franka demo places the cube on the
+# ground (z ~ 0.026), but with the elevated base that position is near the
+# edge of the arm's downward workspace.  The damped-least-squares IK then
+# produces near-zero joint deltas and the arm appears frozen.
+#
+# Fix: add a table and raise the cube / target into the comfortable zone.
+#
+# Workspace derivation (Ridgeback + Franka kinematic chain):
+#   Ridgeback body height    ~0.278 m
+#   Franka mounting offset   ~0.05 m
+#   Franka link0 to shoulder ~0.333 m
+#   Total arm-base height    ~0.66 m
+#   Franka max reach          0.855 m
+#   Comfortable working zone  arm-base +/- 0.35 m  =>  ~0.3 - 1.0 m
+# ---------------------------------------------------------------------------
+TABLE_HEIGHT = 0.4                     # 40 cm tall table
+TABLE_HALF_HEIGHT = TABLE_HEIGHT / 2.0
+CUBE_HALF_SIZE = 0.0515 / 2.0         # half of 5.15 cm cube
+
+
 class RidgebackFrankaExperimental(FrankaExperimental):
     """Ridgeback Franka mobile manipulator controller.
 
@@ -57,8 +81,17 @@ class RidgebackFrankaExperimental(FrankaExperimental):
       - 7 arm DOFs (panda_joint1 .. panda_joint7) for the Franka arm
       - 2 gripper DOFs (panda_finger_joint1, panda_finger_joint2)
 
+    How joint positioning works (same as standard Franka, adapted for 12 DOFs):
+      1. The physics engine maintains joint positions for all 12 DOFs.
+      2. Each joint has a PD position-drive:
+            torque = stiffness * (target - pos) - damping * vel
+      3. set_dof_position_targets() sends new targets to the PD controllers.
+      4. Over successive physics steps the joints converge toward the targets.
+      5. IK (set_end_effector_pose) computes what arm-joint targets will move
+         the end effector toward a desired world-frame pose, using the Jacobian.
+
     This subclass overrides IK and gripper methods to account for the
-    3 base DOFs that precede the arm joints.
+    3 base DOFs that precede the arm joints in the articulation.
     """
 
     # Number of mobile base DOFs that precede the arm joints
@@ -114,14 +147,18 @@ class RidgebackFrankaExperimental(FrankaExperimental):
         self.gripper_open_position = np.array([[0.04, 0.04]])
         self.gripper_closed_position = np.array([[0.0, 0.0]])
 
-        # Print diagnostic info for debugging DOF/link structure
-        print(f"[RidgebackFranka] End effector link index: {self.end_effector_link_index}")
+        # Diagnostics (printed once at init)
+        print(f"[RidgebackFranka] End-effector link index: {self.end_effector_link_index}")
         try:
             dof_names = self.get_dof_names()
             print(f"[RidgebackFranka] Total DOFs: {len(dof_names)}")
             print(f"[RidgebackFranka] DOF names: {dof_names}")
         except Exception as e:
             print(f"[RidgebackFranka] Could not get DOF names: {e}")
+
+        # Ensure arm joints have position drives so set_dof_position_targets works
+        if create_robot:
+            self._configure_arm_drives(robot_path)
 
     @staticmethod
     def _find_prim_path(robot_path, link_name):
@@ -154,8 +191,64 @@ class RidgebackFrankaExperimental(FrankaExperimental):
                     print(f"[RidgebackFranka] Found {link_name} at: {found_path}")
                     return found_path
 
-        print(f"[RidgebackFranka] WARNING: {link_name} not found in hierarchy, using: {direct_path}")
+        print(f"[RidgebackFranka] WARNING: {link_name} not found, using: {direct_path}")
         return direct_path
+
+    @staticmethod
+    def _configure_arm_drives(robot_path):
+        """Ensure arm and finger joints have position drives with adequate stiffness.
+
+        The standard Franka USD ships with position drives (stiffness ~400 Nm/rad).
+        The Ridgeback Franka USD may differ.  Without proper drives,
+        set_dof_position_targets() has no effect and the arm will not move.
+        """
+        try:
+            import omni.usd
+            from pxr import Usd, UsdPhysics
+
+            stage = omni.usd.get_context().get_stage()
+            robot_prim = stage.GetPrimAtPath(robot_path)
+            if not robot_prim.IsValid():
+                return
+
+            arm_joint_names = {f"panda_joint{i}" for i in range(1, 8)}
+            finger_joint_names = {"panda_finger_joint1", "panda_finger_joint2"}
+            target_joints = arm_joint_names | finger_joint_names
+
+            for prim in Usd.PrimRange(robot_prim):
+                name = prim.GetName()
+                if name not in target_joints:
+                    continue
+
+                # angular for revolute arm joints, linear for prismatic fingers
+                drive_type = "linear" if name in finger_joint_names else "angular"
+
+                # Apply DriveAPI if missing
+                if not UsdPhysics.DriveAPI.Get(prim, drive_type):
+                    UsdPhysics.DriveAPI.Apply(prim, drive_type)
+                    print(f"[RidgebackFranka] Applied {drive_type} drive to {name}")
+
+                drive = UsdPhysics.DriveAPI.Get(prim, drive_type)
+                stiffness = drive.GetStiffnessAttr().Get()
+                damping = drive.GetDampingAttr().Get()
+
+                # Only override if stiffness is missing or zero
+                if stiffness is None or stiffness == 0:
+                    if name in finger_joint_names:
+                        drive.GetStiffnessAttr().Set(1e4)
+                        drive.GetDampingAttr().Set(1e2)
+                    else:
+                        drive.GetStiffnessAttr().Set(400.0)
+                        drive.GetDampingAttr().Set(40.0)
+                    print(f"[RidgebackFranka] Configured drive for {name}: "
+                          f"stiffness={drive.GetStiffnessAttr().Get()}, "
+                          f"damping={drive.GetDampingAttr().Get()}")
+                else:
+                    print(f"[RidgebackFranka] {name} drive OK: "
+                          f"stiffness={stiffness}, damping={damping}")
+
+        except Exception as e:
+            print(f"[RidgebackFranka] Could not configure drives: {e}")
 
     def set_end_effector_pose(self, position, orientation, ik_method="damped-least-squares"):
         """Set the end effector pose using IK on the 7 arm joints only.
@@ -191,18 +284,17 @@ class RidgebackFrankaExperimental(FrankaExperimental):
         dof_position_targets = current_dof_positions[:, arm_start:arm_end] + delta_dof_positions
         self.set_dof_position_targets(dof_position_targets, dof_indices=list(range(arm_start, arm_end)))
 
-        # IK diagnostics for first 5 steps to help debug arm not moving
+        # IK diagnostics (first 3 steps only)
         if not hasattr(self, '_ik_debug_count'):
             self._ik_debug_count = 0
-        if self._ik_debug_count < 5:
-            print(f"[IK step {self._ik_debug_count}] Jacobian full shape: {jacobian_matrices.shape}")
-            print(f"[IK step {self._ik_debug_count}] EE link idx: {self.end_effector_link_index}, "
-                  f"Jacobian row: {self.end_effector_link_index - 1}")
-            print(f"[IK step {self._ik_debug_count}] Current EE pos: {current_ee_position}")
-            print(f"[IK step {self._ik_debug_count}] Goal pos: {position}")
-            print(f"[IK step {self._ik_debug_count}] J_ee max|val|: {np.abs(jacobian_end_effector).max():.6f}")
-            print(f"[IK step {self._ik_debug_count}] IK delta (arm): {delta_dof_positions}")
-            print(f"[IK step {self._ik_debug_count}] Arm targets: {dof_position_targets}")
+        if self._ik_debug_count < 3:
+            print(f"[IK {self._ik_debug_count}] J shape={jacobian_matrices.shape}  "
+                  f"EE idx={self.end_effector_link_index}")
+            print(f"[IK {self._ik_debug_count}] EE pos={current_ee_position}  "
+                  f"Goal={position}")
+            print(f"[IK {self._ik_debug_count}] |J_ee|={np.abs(jacobian_end_effector).max():.6f}  "
+                  f"|delta|={np.abs(delta_dof_positions).max():.6f}")
+            print(f"[IK {self._ik_debug_count}] arm targets={dof_position_targets}")
             self._ik_debug_count += 1
 
     def open_gripper(self):
@@ -249,7 +341,11 @@ class RidgebackFrankaPickPlace:
         target_position=None,
         offset=None,
     ):
-        """Set up the scene with the Ridgeback Franka robot and a cube."""
+        """Set up the scene with the Ridgeback Franka, a table, and a cube.
+
+        The table provides a surface at TABLE_HEIGHT so the cube is within the
+        arm's comfortable workspace (the Ridgeback elevates the arm ~0.5 m).
+        """
         self.cube_initial_position = cube_initial_position
         self.cube_initial_orientation = cube_initial_orientation
         self.target_position = target_position
@@ -259,26 +355,51 @@ class RidgebackFrankaPickPlace:
         if self.cube_size is None:
             self.cube_size = np.array([0.0515, 0.0515, 0.0515])
         if self.cube_initial_position is None:
-            self.cube_initial_position = np.array([0.5, 0.0, 0.0258])
+            # Cube sits on the table surface (table top = TABLE_HEIGHT)
+            self.cube_initial_position = np.array([0.5, 0.0, TABLE_HEIGHT + CUBE_HALF_SIZE])
         if self.cube_initial_orientation is None:
             self.cube_initial_orientation = np.array([1, 0, 0, 0])
         if self.target_position is None:
-            self.target_position = np.array([-0.3, -0.3, 0.12])
+            # Target: on the other side, also at table height
+            self.target_position = np.array([-0.3, -0.3, TABLE_HEIGHT + 0.12])
         if self.offset is None:
             self.offset = np.array([0.0, 0.0, 0.0])
         self.target_position = self.target_position + self.offset
 
         stage_utils.create_new_stage(template="sunlight")
 
-        # Use RidgebackFrankaExperimental instead of FrankaExperimental
-        self.robot = RidgebackFrankaExperimental(robot_path="/World/robot", create_robot=True)
+        # Robot
+        self.robot = RidgebackFrankaExperimental(
+            robot_path="/World/robot", create_robot=True
+        )
         self.end_effector_link = self.robot.end_effector_link
 
-        ground_plane = stage_utils.add_reference_to_stage(
-            usd_path=get_assets_root_path() + "/Isaac/Environments/Grid/default_environment.usd",
+        # Ground plane
+        stage_utils.add_reference_to_stage(
+            usd_path=get_assets_root_path()
+            + "/Isaac/Environments/Grid/default_environment.usd",
             path="/World/ground",
         )
 
+        # --- Table ---
+        # A static box that gives the cube a surface to rest on.
+        # 60 cm x 80 cm x TABLE_HEIGHT, centred 30 cm in front of the robot.
+        table_material = PreviewSurfaceMaterial("/Visual_materials/wood")
+        table_material.set_input_values("diffuseColor", [0.55, 0.35, 0.17])
+
+        table_shape = Cube(
+            paths="/World/Table",
+            positions=np.array([0.3, 0.0, TABLE_HALF_HEIGHT]),
+            orientations=np.array([1, 0, 0, 0]),
+            sizes=[1.0],
+            scales=np.array([0.6, 0.8, TABLE_HEIGHT]),
+            reset_xform_op_properties=True,
+        )
+        GeomPrim(paths=table_shape.paths, apply_collision_apis=True)
+        table_shape.apply_visual_materials(table_material)
+        print(f"[Scene] Table added (top surface at z={TABLE_HEIGHT})")
+
+        # --- Cube ---
         visual_material = PreviewSurfaceMaterial("/Visual_materials/blue")
         visual_material.set_input_values("diffuseColor", [0.0, 0.0, 1.0])
 
@@ -293,6 +414,9 @@ class RidgebackFrankaPickPlace:
         GeomPrim(paths=cube_shape.paths, apply_collision_apis=True)
         self.cube = RigidPrim(paths=cube_shape.paths)
         cube_shape.apply_visual_materials(visual_material)
+
+        print(f"[Scene] Cube at {self.cube_initial_position}")
+        print(f"[Scene] Target at {self.target_position}")
 
     def forward(self, ik_method="damped-least-squares"):
         """Execute one step of the pick-and-place operation."""
@@ -388,7 +512,11 @@ class RidgebackFrankaPickPlace:
         print("Pick-and-place system reset complete")
 
     def reset_robot(self):
-        """Reset the robot to its default state."""
+        """Reset the robot to its default state.
+
+        Directly sets all 12 DOF positions and targets (bypasses
+        FrankaExperimental.reset_to_default_pose which only knows 9 DOFs).
+        """
         if self.robot is not None:
             # Reset all 12 DOFs: [3 base + 7 arm + 2 gripper]
             default_positions = np.array([[
@@ -400,9 +528,11 @@ class RidgebackFrankaPickPlace:
             self.robot.set_dof_position_targets(default_positions)
             self._event = 0
             self._step = 0
+            # Reset IK debug counter so diagnostics print again after reset
+            self.robot._ik_debug_count = 0
             print("Ridgeback Franka reset to default state")
         else:
-            print("Warning: Ridgeback Franka controller not initialized, cannot reset")
+            print("Warning: Ridgeback Franka controller not initialized")
 
     def reset_cube(self, position=None, orientation=None):
         """Reset the cube to its initial position and orientation."""
