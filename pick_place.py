@@ -52,13 +52,17 @@ class RidgebackFrankaExperimental(FrankaExperimental):
     Extends FrankaExperimental to use the Ridgeback Franka USD asset
     (Clearpath Ridgeback mobile base + Franka Emika Panda arm).
 
-    In Isaac Sim, the Ridgeback mobile base is NOT part of the Franka
-    articulation DOFs. The articulation contains only the 7 arm joints
-    and 2 gripper joints (same as standard Franka). The wheeled base
-    is controlled separately. Therefore all IK, gripper, and reset
-    logic from FrankaExperimental works unchanged -- we only need to
-    override the USD asset that gets loaded.
+    The Ridgeback Franka articulation has 12 DOFs:
+      - 3 base DOFs (x, y, yaw) for the Ridgeback holonomic base
+      - 7 arm DOFs (panda_joint1 .. panda_joint7) for the Franka arm
+      - 2 gripper DOFs (panda_finger_joint1, panda_finger_joint2)
+
+    This subclass overrides IK and gripper methods to account for the
+    3 base DOFs that precede the arm joints.
     """
+
+    # Number of mobile base DOFs that precede the arm joints
+    BASE_DOF_COUNT = 3
 
     def __init__(
         self,
@@ -74,24 +78,84 @@ class RidgebackFrankaExperimental(FrankaExperimental):
             end_effector_link: The end effector rigid body link.
         """
         if create_robot:
-            # Load Ridgeback Franka USD from Isaac Sim assets instead of standard Franka
+            # Load Ridgeback Franka USD from Isaac Sim assets
             stage_utils.add_reference_to_stage(
                 usd_path=get_assets_root_path()
                 + "/Isaac/Robots/Clearpath/RidgebackFranka/ridgeback_franka.usd",
                 path=robot_path,
             )
 
-        # Initialize parent with create_robot=False so it does NOT try to load
-        # the standard Franka USD (we already loaded the Ridgeback Franka above).
-        # This sets up Articulation, end_effector_link, gripper positions, and
-        # all IK methods with the correct DOF indices (0-6 for arm, 7-8 for gripper).
-        super().__init__(robot_path=robot_path, create_robot=False, end_effector_link=end_effector_link)
+        # Initialize Articulation directly (skip FrankaExperimental's __init__
+        # which would load the standard Franka USD and use 9-DOF defaults)
+        from isaacsim.core.experimental.prims import Articulation
+
+        Articulation.__init__(self, robot_path)
+
+        # Set up end effector link
+        if end_effector_link is None:
+            self.end_effector_link = RigidPrim(f"{robot_path}/panda_hand")
+        else:
+            self.end_effector_link = end_effector_link
 
         if create_robot:
-            # Set default arm pose (same joint angles as standard Franka)
+            # Default state: 12 DOFs = [3 base + 7 arm + 2 gripper]
             self.set_default_state(
-                dof_positions=[0.012, -0.568, 0.0, -2.811, 0.0, 3.037, 0.741, 0.04, 0.04]
+                dof_positions=[
+                    0.0, 0.0, 0.0,                                       # Ridgeback base (x, y, yaw)
+                    0.012, -0.568, 0.0, -2.811, 0.0, 3.037, 0.741,       # Franka arm joints
+                    0.04, 0.04,                                           # Gripper fingers (open)
+                ]
             )
+
+        self.end_effector_link_index = self.get_link_indices("panda_hand").list()[0]
+
+        # Gripper positions
+        self.gripper_open_position = np.array([[0.04, 0.04]])
+        self.gripper_closed_position = np.array([[0.0, 0.0]])
+
+    def set_end_effector_pose(self, position, orientation, ik_method="damped-least-squares"):
+        """Set the end effector pose using IK on the 7 arm joints only.
+
+        The Jacobian columns are sliced to extract only the arm DOFs
+        (indices 3-9), skipping the 3 base DOFs.
+        """
+        current_dof_positions, current_ee_position, current_ee_orientation = (
+            self.get_current_state()
+        )
+
+        if position.ndim == 1:
+            position = position.reshape(1, -1)
+
+        jacobian_matrices = self.get_jacobian_matrices().numpy()
+        # Extract Jacobian columns for the 7 arm joints only (skip 3 base DOFs)
+        jacobian_end_effector = jacobian_matrices[
+            :, self.end_effector_link_index - 1, :, self.BASE_DOF_COUNT : self.BASE_DOF_COUNT + 7
+        ]
+
+        delta_dof_positions = self.differential_inverse_kinematics(
+            jacobian_end_effector=jacobian_end_effector,
+            current_position=current_ee_position,
+            current_orientation=current_ee_orientation,
+            goal_position=position,
+            goal_orientation=orientation,
+            method=ik_method,
+        )
+
+        # Apply IK delta to arm joints only (DOF indices 3 through 9)
+        arm_start = self.BASE_DOF_COUNT
+        arm_end = arm_start + 7
+        dof_position_targets = current_dof_positions[:, arm_start:arm_end] + delta_dof_positions
+        self.set_dof_position_targets(dof_position_targets, dof_indices=list(range(arm_start, arm_end)))
+
+    def open_gripper(self):
+        """Open the gripper (DOF indices 10, 11)."""
+        finger_indices = [self.BASE_DOF_COUNT + 7, self.BASE_DOF_COUNT + 8]
+        self.set_dof_position_targets(self.gripper_open_position, dof_indices=finger_indices)
+
+    def close_gripper(self):
+        """Close the gripper (DOF indices 10, 11)."""
+        finger_indices = [self.BASE_DOF_COUNT + 7, self.BASE_DOF_COUNT + 8]
+        self.set_dof_position_targets(self.gripper_closed_position, dof_indices=finger_indices)
 
 
 class RidgebackFrankaPickPlace:
@@ -268,9 +332,14 @@ class RidgebackFrankaPickPlace:
     def reset_robot(self):
         """Reset the robot to its default state."""
         if self.robot is not None:
-            # Use Articulation's built-in initialize method to reset to the
-            # default state that was set via set_default_state in __init__
-            self.robot.initialize()
+            # Reset all 12 DOFs: [3 base + 7 arm + 2 gripper]
+            default_positions = np.array([[
+                0.0, 0.0, 0.0,                                       # Ridgeback base
+                0.012, -0.568, 0.0, -2.811, 0.0, 3.037, 0.741,       # Franka arm
+                0.04, 0.04,                                           # Gripper (open)
+            ]])
+            self.robot.set_dof_positions(default_positions)
+            self.robot.set_dof_position_targets(default_positions)
             self._event = 0
             self._step = 0
             print("Ridgeback Franka reset to default state")
