@@ -69,6 +69,11 @@ TABLE_HEIGHT = 0.4                     # 40 cm tall table
 TABLE_HALF_HEIGHT = TABLE_HEIGHT / 2.0
 CUBE_HALF_SIZE = 0.0515 / 2.0         # half of 5.15 cm cube
 
+# Franka arm default joint positions (7 joints)
+FRANKA_ARM_DEFAULT = [0.012, -0.568, 0.0, -2.811, 0.0, 3.037, 0.741]
+# Franka finger default positions (2 fingers, open)
+FRANKA_FINGER_DEFAULT = [0.04, 0.04]
+
 
 class RidgebackFrankaExperimental(FrankaExperimental):
     """Ridgeback Franka mobile manipulator controller.
@@ -76,26 +81,10 @@ class RidgebackFrankaExperimental(FrankaExperimental):
     Extends FrankaExperimental to use the Ridgeback Franka USD asset
     (Clearpath Ridgeback mobile base + Franka Emika Panda arm).
 
-    The Ridgeback Franka articulation has 12 DOFs:
-      - 3 base DOFs (x, y, yaw) for the Ridgeback holonomic base
-      - 7 arm DOFs (panda_joint1 .. panda_joint7) for the Franka arm
-      - 2 gripper DOFs (panda_finger_joint1, panda_finger_joint2)
-
-    How joint positioning works (same as standard Franka, adapted for 12 DOFs):
-      1. The physics engine maintains joint positions for all 12 DOFs.
-      2. Each joint has a PD position-drive:
-            torque = stiffness * (target - pos) - damping * vel
-      3. set_dof_position_targets() sends new targets to the PD controllers.
-      4. Over successive physics steps the joints converge toward the targets.
-      5. IK (set_end_effector_pose) computes what arm-joint targets will move
-         the end effector toward a desired world-frame pose, using the Jacobian.
-
-    This subclass overrides IK and gripper methods to account for the
-    3 base DOFs that precede the arm joints in the articulation.
+    DOF indices are auto-detected by matching joint names (panda_joint*,
+    panda_finger_joint*) so the code works regardless of how many base
+    DOFs the Ridgeback USD exposes or what order they appear in.
     """
-
-    # Number of mobile base DOFs that precede the arm joints
-    BASE_DOF_COUNT = 3
 
     def __init__(
         self,
@@ -103,62 +92,75 @@ class RidgebackFrankaExperimental(FrankaExperimental):
         create_robot: bool = True,
         end_effector_link: Optional[RigidPrim] = None,
     ):
-        """Initialize the Ridgeback Franka controller.
-
-        Args:
-            robot_path: USD path where the robot should be created or exists.
-            create_robot: Whether to create a new robot from USD assets.
-            end_effector_link: The end effector rigid body link.
-        """
         if create_robot:
-            # Load Ridgeback Franka USD from Isaac Sim assets
             stage_utils.add_reference_to_stage(
                 usd_path=get_assets_root_path()
                 + "/Isaac/Robots/Clearpath/RidgebackFranka/ridgeback_franka.usd",
                 path=robot_path,
             )
 
-        # Initialize Articulation directly (skip FrankaExperimental's __init__
-        # which would load the standard Franka USD and use 9-DOF defaults)
+        # Initialize Articulation directly (skip FrankaExperimental.__init__
+        # which would load the standard Franka USD and hardcode 9-DOF defaults)
         from isaacsim.core.experimental.prims import Articulation
 
         Articulation.__init__(self, robot_path)
 
-        # Set up end effector link - search USD hierarchy for correct panda_hand path
+        # --- Auto-detect DOF indices by name --------------------------------
+        dof_names = self.get_dof_names()
+        self._arm_dof_indices = []
+        self._finger_dof_indices = []
+        for i, name in enumerate(dof_names):
+            if "panda_joint" in name and "finger" not in name:
+                self._arm_dof_indices.append(i)
+            elif "panda_finger" in name:
+                self._finger_dof_indices.append(i)
+
+        print(f"[RidgebackFranka] Total DOFs: {len(dof_names)}")
+        print(f"[RidgebackFranka] DOF names: {dof_names}")
+        print(f"[RidgebackFranka] Arm DOF indices:    {self._arm_dof_indices} "
+              f"(count={len(self._arm_dof_indices)})")
+        print(f"[RidgebackFranka] Finger DOF indices: {self._finger_dof_indices} "
+              f"(count={len(self._finger_dof_indices)})")
+
+        if len(self._arm_dof_indices) != 7:
+            print(f"[RidgebackFranka] WARNING: expected 7 arm DOFs, "
+                  f"found {len(self._arm_dof_indices)}")
+        if len(self._finger_dof_indices) != 2:
+            print(f"[RidgebackFranka] WARNING: expected 2 finger DOFs, "
+                  f"found {len(self._finger_dof_indices)}")
+
+        # --- End-effector link ----------------------------------------------
         if end_effector_link is None:
             ee_path = self._find_prim_path(robot_path, "panda_hand")
             self.end_effector_link = RigidPrim(ee_path)
         else:
             self.end_effector_link = end_effector_link
 
+        # --- Default state (dynamically built) ------------------------------
         if create_robot:
-            # Default state: 12 DOFs = [3 base + 7 arm + 2 gripper]
-            self.set_default_state(
-                dof_positions=[
-                    0.0, 0.0, 0.0,                                       # Ridgeback base (x, y, yaw)
-                    0.012, -0.568, 0.0, -2.811, 0.0, 3.037, 0.741,       # Franka arm joints
-                    0.04, 0.04,                                           # Gripper fingers (open)
-                ]
-            )
+            default_positions = [0.0] * len(dof_names)
+            for i, idx in enumerate(self._arm_dof_indices):
+                if i < len(FRANKA_ARM_DEFAULT):
+                    default_positions[idx] = FRANKA_ARM_DEFAULT[i]
+            for i, idx in enumerate(self._finger_dof_indices):
+                if i < len(FRANKA_FINGER_DEFAULT):
+                    default_positions[idx] = FRANKA_FINGER_DEFAULT[i]
+            self.set_default_state(dof_positions=default_positions)
+            print(f"[RidgebackFranka] Default positions: {default_positions}")
 
         self.end_effector_link_index = self.get_link_indices("panda_hand").list()[0]
+        print(f"[RidgebackFranka] EE link index: {self.end_effector_link_index}")
 
-        # Gripper positions
+        # Gripper targets
         self.gripper_open_position = np.array([[0.04, 0.04]])
         self.gripper_closed_position = np.array([[0.0, 0.0]])
 
-        # Diagnostics (printed once at init)
-        print(f"[RidgebackFranka] End-effector link index: {self.end_effector_link_index}")
-        try:
-            dof_names = self.get_dof_names()
-            print(f"[RidgebackFranka] Total DOFs: {len(dof_names)}")
-            print(f"[RidgebackFranka] DOF names: {dof_names}")
-        except Exception as e:
-            print(f"[RidgebackFranka] Could not get DOF names: {e}")
-
-        # Ensure arm joints have position drives so set_dof_position_targets works
+        # Ensure PD drives exist on arm and finger joints
         if create_robot:
             self._configure_arm_drives(robot_path)
+
+        # IK step counter for diagnostics
+        self._ik_debug_count = 0
 
     @staticmethod
     def _find_prim_path(robot_path, link_name):
@@ -251,10 +253,10 @@ class RidgebackFrankaExperimental(FrankaExperimental):
             print(f"[RidgebackFranka] Could not configure drives: {e}")
 
     def set_end_effector_pose(self, position, orientation, ik_method="damped-least-squares"):
-        """Set the end effector pose using IK on the 7 arm joints only.
+        """Move the end effector toward *position* / *orientation* via IK.
 
-        The Jacobian columns are sliced to extract only the arm DOFs
-        (indices 3-9), skipping the 3 base DOFs.
+        Uses auto-detected arm DOF indices for Jacobian slicing so the
+        code works regardless of the DOF ordering in the USD.
         """
         current_dof_positions, current_ee_position, current_ee_orientation = (
             self.get_current_state()
@@ -264,9 +266,11 @@ class RidgebackFrankaExperimental(FrankaExperimental):
             position = position.reshape(1, -1)
 
         jacobian_matrices = self.get_jacobian_matrices().numpy()
-        # Extract Jacobian columns for the 7 arm joints only (skip 3 base DOFs)
+
+        # Slice Jacobian columns for the 7 arm DOFs only (auto-detected indices)
+        arm_idx = self._arm_dof_indices
         jacobian_end_effector = jacobian_matrices[
-            :, self.end_effector_link_index - 1, :, self.BASE_DOF_COUNT : self.BASE_DOF_COUNT + 7
+            :, self.end_effector_link_index - 1, :, arm_idx
         ]
 
         delta_dof_positions = self.differential_inverse_kinematics(
@@ -278,34 +282,32 @@ class RidgebackFrankaExperimental(FrankaExperimental):
             method=ik_method,
         )
 
-        # Apply IK delta to arm joints only (DOF indices 3 through 9)
-        arm_start = self.BASE_DOF_COUNT
-        arm_end = arm_start + 7
-        dof_position_targets = current_dof_positions[:, arm_start:arm_end] + delta_dof_positions
-        self.set_dof_position_targets(dof_position_targets, dof_indices=list(range(arm_start, arm_end)))
+        # Apply IK delta to arm joints only
+        dof_position_targets = current_dof_positions[:, arm_idx] + delta_dof_positions
+        self.set_dof_position_targets(dof_position_targets, dof_indices=arm_idx)
 
-        # IK diagnostics (first 3 steps only)
-        if not hasattr(self, '_ik_debug_count'):
-            self._ik_debug_count = 0
+        # Diagnostics (first 3 IK steps)
         if self._ik_debug_count < 3:
-            print(f"[IK {self._ik_debug_count}] J shape={jacobian_matrices.shape}  "
-                  f"EE idx={self.end_effector_link_index}")
-            print(f"[IK {self._ik_debug_count}] EE pos={current_ee_position}  "
-                  f"Goal={position}")
-            print(f"[IK {self._ik_debug_count}] |J_ee|={np.abs(jacobian_end_effector).max():.6f}  "
+            n = self._ik_debug_count
+            print(f"[IK {n}] Jacobian shape={jacobian_matrices.shape}  "
+                  f"EE link idx={self.end_effector_link_index}  arm_idx={arm_idx}")
+            print(f"[IK {n}] EE pos={current_ee_position}  Goal={position}")
+            print(f"[IK {n}] |J_ee|={np.abs(jacobian_end_effector).max():.6f}  "
                   f"|delta|={np.abs(delta_dof_positions).max():.6f}")
-            print(f"[IK {self._ik_debug_count}] arm targets={dof_position_targets}")
+            print(f"[IK {n}] arm targets={dof_position_targets}")
             self._ik_debug_count += 1
 
     def open_gripper(self):
-        """Open the gripper (DOF indices 10, 11)."""
-        finger_indices = [self.BASE_DOF_COUNT + 7, self.BASE_DOF_COUNT + 8]
-        self.set_dof_position_targets(self.gripper_open_position, dof_indices=finger_indices)
+        """Open the gripper using auto-detected finger DOF indices."""
+        self.set_dof_position_targets(
+            self.gripper_open_position, dof_indices=self._finger_dof_indices
+        )
 
     def close_gripper(self):
-        """Close the gripper (DOF indices 10, 11)."""
-        finger_indices = [self.BASE_DOF_COUNT + 7, self.BASE_DOF_COUNT + 8]
-        self.set_dof_position_targets(self.gripper_closed_position, dof_indices=finger_indices)
+        """Close the gripper using auto-detected finger DOF indices."""
+        self.set_dof_position_targets(
+            self.gripper_closed_position, dof_indices=self._finger_dof_indices
+        )
 
 
 class RidgebackFrankaPickPlace:
@@ -512,27 +514,31 @@ class RidgebackFrankaPickPlace:
         print("Pick-and-place system reset complete")
 
     def reset_robot(self):
-        """Reset the robot to its default state.
+        """Reset all DOFs to their default values.
 
-        Directly sets all 12 DOF positions and targets (bypasses
-        FrankaExperimental.reset_to_default_pose which only knows 9 DOFs).
+        Builds the default array dynamically from auto-detected indices
+        so it works regardless of the DOF count or ordering.
         """
-        if self.robot is not None:
-            # Reset all 12 DOFs: [3 base + 7 arm + 2 gripper]
-            default_positions = np.array([[
-                0.0, 0.0, 0.0,                                       # Ridgeback base
-                0.012, -0.568, 0.0, -2.811, 0.0, 3.037, 0.741,       # Franka arm
-                0.04, 0.04,                                           # Gripper (open)
-            ]])
-            self.robot.set_dof_positions(default_positions)
-            self.robot.set_dof_position_targets(default_positions)
-            self._event = 0
-            self._step = 0
-            # Reset IK debug counter so diagnostics print again after reset
-            self.robot._ik_debug_count = 0
-            print("Ridgeback Franka reset to default state")
-        else:
-            print("Warning: Ridgeback Franka controller not initialized")
+        if self.robot is None:
+            print("WARNING: robot not initialised")
+            return
+
+        # Build default array dynamically from auto-detected indices
+        num_dofs = len(self.robot.get_dof_names())
+        defaults = np.zeros((1, num_dofs))
+        for i, idx in enumerate(self.robot._arm_dof_indices):
+            if i < len(FRANKA_ARM_DEFAULT):
+                defaults[0, idx] = FRANKA_ARM_DEFAULT[i]
+        for i, idx in enumerate(self.robot._finger_dof_indices):
+            if i < len(FRANKA_FINGER_DEFAULT):
+                defaults[0, idx] = FRANKA_FINGER_DEFAULT[i]
+
+        self.robot.set_dof_positions(defaults)
+        self.robot.set_dof_position_targets(defaults)
+        self.robot._ik_debug_count = 0
+        self._event = 0
+        self._step = 0
+        print(f"Robot reset ({num_dofs} DOFs)")
 
     def reset_cube(self, position=None, orientation=None):
         """Reset the cube to its initial position and orientation."""
