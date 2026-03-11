@@ -91,9 +91,10 @@ class RidgebackFrankaExperimental(FrankaExperimental):
 
         Articulation.__init__(self, robot_path)
 
-        # Set up end effector link
+        # Set up end effector link - search USD hierarchy for correct panda_hand path
         if end_effector_link is None:
-            self.end_effector_link = RigidPrim(f"{robot_path}/panda_hand")
+            ee_path = self._find_prim_path(robot_path, "panda_hand")
+            self.end_effector_link = RigidPrim(ee_path)
         else:
             self.end_effector_link = end_effector_link
 
@@ -112,6 +113,49 @@ class RidgebackFrankaExperimental(FrankaExperimental):
         # Gripper positions
         self.gripper_open_position = np.array([[0.04, 0.04]])
         self.gripper_closed_position = np.array([[0.0, 0.0]])
+
+        # Print diagnostic info for debugging DOF/link structure
+        print(f"[RidgebackFranka] End effector link index: {self.end_effector_link_index}")
+        try:
+            dof_names = self.get_dof_names()
+            print(f"[RidgebackFranka] Total DOFs: {len(dof_names)}")
+            print(f"[RidgebackFranka] DOF names: {dof_names}")
+        except Exception as e:
+            print(f"[RidgebackFranka] Could not get DOF names: {e}")
+
+    @staticmethod
+    def _find_prim_path(robot_path, link_name):
+        """Find the full USD prim path for a named link under robot_path.
+
+        The Ridgeback Franka USD may nest panda links under sub-prims
+        (e.g., /World/robot/panda/panda_hand) rather than directly under
+        the robot root (/World/robot/panda_hand). This method searches
+        the USD hierarchy to find the actual path.
+        """
+        import omni.usd
+        from pxr import Usd
+
+        stage = omni.usd.get_context().get_stage()
+
+        # Try direct path first (works for standard Franka USD)
+        direct_path = f"{robot_path}/{link_name}"
+        prim = stage.GetPrimAtPath(direct_path)
+        if prim.IsValid():
+            print(f"[RidgebackFranka] Found {link_name} at direct path: {direct_path}")
+            return direct_path
+
+        # Search recursively through the robot's USD hierarchy
+        print(f"[RidgebackFranka] {link_name} not at {direct_path}, searching hierarchy...")
+        robot_prim = stage.GetPrimAtPath(robot_path)
+        if robot_prim.IsValid():
+            for descendant in Usd.PrimRange(robot_prim):
+                if descendant.GetName() == link_name:
+                    found_path = str(descendant.GetPath())
+                    print(f"[RidgebackFranka] Found {link_name} at: {found_path}")
+                    return found_path
+
+        print(f"[RidgebackFranka] WARNING: {link_name} not found in hierarchy, using: {direct_path}")
+        return direct_path
 
     def set_end_effector_pose(self, position, orientation, ik_method="damped-least-squares"):
         """Set the end effector pose using IK on the 7 arm joints only.
@@ -146,6 +190,20 @@ class RidgebackFrankaExperimental(FrankaExperimental):
         arm_end = arm_start + 7
         dof_position_targets = current_dof_positions[:, arm_start:arm_end] + delta_dof_positions
         self.set_dof_position_targets(dof_position_targets, dof_indices=list(range(arm_start, arm_end)))
+
+        # IK diagnostics for first 5 steps to help debug arm not moving
+        if not hasattr(self, '_ik_debug_count'):
+            self._ik_debug_count = 0
+        if self._ik_debug_count < 5:
+            print(f"[IK step {self._ik_debug_count}] Jacobian full shape: {jacobian_matrices.shape}")
+            print(f"[IK step {self._ik_debug_count}] EE link idx: {self.end_effector_link_index}, "
+                  f"Jacobian row: {self.end_effector_link_index - 1}")
+            print(f"[IK step {self._ik_debug_count}] Current EE pos: {current_ee_position}")
+            print(f"[IK step {self._ik_debug_count}] Goal pos: {position}")
+            print(f"[IK step {self._ik_debug_count}] J_ee max|val|: {np.abs(jacobian_end_effector).max():.6f}")
+            print(f"[IK step {self._ik_debug_count}] IK delta (arm): {delta_dof_positions}")
+            print(f"[IK step {self._ik_debug_count}] Arm targets: {dof_position_targets}")
+            self._ik_debug_count += 1
 
     def open_gripper(self):
         """Open the gripper (DOF indices 10, 11)."""
