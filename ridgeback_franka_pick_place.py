@@ -16,18 +16,15 @@
 """
 Ridgeback Franka Pick-and-Place Demo for Isaac Sim 5.1.0
 
-Uses the built-in FrankaPickPlace helper (IK-based arm control) wrapped with
-a RidgebackFrankaMobile class that adds mobile base navigation using the
-actual Ridgeback Franka USD model from Isaac Sim assets.
+Uses the built-in FrankaPickPlace helper (IK-based arm control) with the
+actual Ridgeback Franka USD model replacing the standalone Franka.
 
-Architecture:
-  - FrankaPickPlace handles IK-based arm control, table, and cube scene setup
-  - RidgebackFrankaMobile wraps it with the Ridgeback Franka USD model
-  - The standalone Franka from FrankaPickPlace is hidden; the Ridgeback Franka
-    USD model is displayed instead
-  - Arm joint positions are synced from the IK-controlled Franka to the
-    Ridgeback Franka each simulation step
-  - Base is moved by calling set_world_pose() on the Ridgeback Franka prim
+After FrankaPickPlace sets up the scene (table, cube, IK), this script
+replaces the Franka USD reference on the same prim with the Ridgeback
+Franka USD.  Since both share the same panda_joint1-7 and
+panda_finger_joint1/2 joints, FrankaPickPlace's IK continues to work.
+The Ridgeback's dummy_base_prismatic_x/y_joint joints are used for
+mobile base navigation.
 
 State machine:
   INIT -> MOVE_TO_CUBE -> WAIT_SETTLED -> PICK_CUBE -> RETURN_TO_START
@@ -92,27 +89,7 @@ from isaacsim.core.api.robots import Robot
 from isaacsim.core.simulation_manager import SimulationManager
 from isaacsim.robot.manipulators.examples.franka import FrankaPickPlace
 from isaacsim.storage.native import get_assets_root_path
-import isaacsim.core.utils.stage as stage_utils
 from pxr import UsdGeom, Gf, Usd, Sdf
-
-# Optional imports -- multiple fallback strategies for moving the robot prim
-try:
-    from pxr import PhysxSchema
-    PHYSX_AVAILABLE = True
-except ImportError:
-    PHYSX_AVAILABLE = False
-
-try:
-    from omni.isaac.dynamic_control import _dynamic_control
-    DC_AVAILABLE = True
-except ImportError:
-    DC_AVAILABLE = False
-
-try:
-    from omni.isaac.core.prims import XFormPrim
-    XFORM_AVAILABLE = True
-except ImportError:
-    XFORM_AVAILABLE = False
 
 # Ridgeback Franka USD asset path (from Isaac Sim asset library)
 RIDGEBACK_FRANKA_USD_SUBPATH = "/Isaac/Robots/Clearpath/RidgebackFranka/ridgeback_franka.usd"
@@ -130,12 +107,6 @@ FRANKA_ARM_JOINT_NAMES = [
 FRANKA_GRIPPER_JOINT_NAMES = [
     "panda_finger_joint1",
     "panda_finger_joint2",
-]
-# Ridgeback-specific dummy joints for base movement
-RIDGEBACK_BASE_JOINTS = [
-    "dummy_base_prismatic_x_joint",
-    "dummy_base_prismatic_y_joint",
-    "dummy_base_revolute_z_joint",
 ]
 
 
@@ -161,19 +132,19 @@ class RidgebackFrankaMobile:
     """Ridgeback Franka mobile manipulator with base navigation + pick-place.
 
     Wraps the built-in FrankaPickPlace helper (which provides IK-based arm
-    control, table, and cube) with mobile-base navigation using the actual
-    Ridgeback Franka USD model from Isaac Sim assets.
+    control, table, and cube).  The standalone Franka USD reference on the
+    robot prim is replaced with the Ridgeback Franka USD so only ONE robot
+    exists in the scene.  Since both share the same panda joints,
+    FrankaPickPlace's IK continues to work seamlessly.
 
-    The standalone Franka from FrankaPickPlace is hidden. The Ridgeback Franka
-    USD model is loaded as the visible robot. Each simulation step, arm joint
-    positions are synced from the IK-controlled Franka to the Ridgeback Franka.
+    The Ridgeback's dummy_base_prismatic_x/y_joint joints provide base
+    navigation.
     """
 
     def __init__(self, franka_pick_place, cube_offset=1.5):
         self.franka_pick_place = franka_pick_place
         self.cube_offset = cube_offset
 
-        self._ridgeback_prim_path = "/World/RidgebackFranka"
         self._state = MobileState.INIT
         self._step_count = 0
         self._state_step_count = 0
@@ -185,21 +156,14 @@ class RidgebackFrankaMobile:
         self._current_position = self.start_position.copy()
         self._move_speed = 0.01  # metres per step
 
-        # FrankaPickPlace's standalone Franka (hidden, used for IK)
+        # Robot prim path (same prim, but now contains Ridgeback Franka)
         self._franka_prim_path = None
 
-        # Ridgeback Franka robot handle
-        self._ridgeback_robot = None
-        self._ridgeback_arm_indices = []
-        self._ridgeback_gripper_indices = []
-        self._ridgeback_base_x_idx = -1
-        self._ridgeback_base_y_idx = -1
-        self._ridgeback_base_yaw_idx = -1
-
-        # FrankaPickPlace Franka robot handle (for reading IK joint positions)
-        self._ik_franka_robot = None
-        self._ik_arm_indices = []
-        self._ik_gripper_indices = []
+        # Robot handle for joint access
+        self._robot = None
+        self._base_x_idx = -1
+        self._base_y_idx = -1
+        self._base_yaw_idx = -1
 
         # Scene prim helpers (for cube/table offset and tracking)
         self._scene_prim_originals = {}
@@ -213,27 +177,29 @@ class RidgebackFrankaMobile:
     #  Scene setup
     # ------------------------------------------------------------------
     def setup_mobile_base(self, stage):
-        """Load the Ridgeback Franka USD and configure the scene."""
+        """Replace the Franka USD with Ridgeback Franka USD on the same prim."""
         # Find the standalone Franka that FrankaPickPlace created
         self._franka_prim_path = self._find_franka_prim(stage)
         if self._franka_prim_path is None:
-            print("[ERROR] Could not find FrankaPickPlace's Franka in scene!")
+            print("[ERROR] Could not find FrankaPickPlace Franka in scene!")
             return None
 
         print(f"[INFO] Found FrankaPickPlace Franka at: {self._franka_prim_path}")
 
-        # Load the Ridgeback Franka USD from Isaac Sim assets
+        # Replace the Franka USD reference with Ridgeback Franka USD
         assets_root_path = get_assets_root_path()
         ridgeback_usd_path = assets_root_path + RIDGEBACK_FRANKA_USD_SUBPATH
-        stage_utils.add_reference_to_stage(ridgeback_usd_path, self._ridgeback_prim_path)
-        print(f"[INFO] Loaded Ridgeback Franka USD at: {self._ridgeback_prim_path}")
 
-        # Position the Ridgeback Franka at the start position
-        self._set_ridgeback_usd_position(stage, self.start_position)
-
-        # Hide the standalone Franka (FrankaPickPlace's robot) so only
-        # the Ridgeback Franka is visible
-        self._hide_franka_prim(stage)
+        franka_prim = stage.GetPrimAtPath(self._franka_prim_path)
+        if franka_prim.IsValid():
+            # Clear all existing USD references on this prim
+            franka_prim.GetReferences().ClearReferences()
+            # Add the Ridgeback Franka USD as the new reference
+            franka_prim.GetReferences().AddReference(ridgeback_usd_path)
+            print(f"[INFO] Replaced Franka USD with Ridgeback Franka USD at {self._franka_prim_path}")
+        else:
+            print("[ERROR] Franka prim is not valid!")
+            return None
 
         # Discover and offset scene prims (cube / table)
         self._discover_scene_prims(stage)
@@ -241,137 +207,40 @@ class RidgebackFrankaMobile:
         self._find_cube_prim(stage)
         self._find_gripper_prim(stage)
 
-        print(f"[INFO] Ridgeback Franka at start={self.start_position}")
-        print(f"[INFO] Table/cube offset to x={self.cube_offset}m")
+        print(f"[INFO] Ridgeback Franka ready, table/cube offset to x={self.cube_offset}m")
 
-        return self._ridgeback_prim_path
-
-    def _hide_franka_prim(self, stage):
-        """Make the standalone Franka from FrankaPickPlace invisible."""
-        if self._franka_prim_path is None:
-            return
-        franka_prim = stage.GetPrimAtPath(self._franka_prim_path)
-        if not franka_prim.IsValid():
-            return
-        try:
-            imageable = UsdGeom.Imageable(franka_prim)
-            if imageable:
-                imageable.MakeInvisible()
-                print(f"[INFO] Hidden FrankaPickPlace Franka at {self._franka_prim_path}")
-        except Exception as exc:
-            print(f"[WARNING] Could not hide Franka prim: {exc}")
-
-    def _set_ridgeback_usd_position(self, stage, position):
-        """Set the Ridgeback Franka position using USD transforms (pre-sim)."""
-        prim = stage.GetPrimAtPath(self._ridgeback_prim_path)
-        if not prim.IsValid():
-            return
-        xf = UsdGeom.Xformable(prim)
-        xf.ClearXformOpOrder()
-        translate_op = xf.AddTranslateOp()
-        translate_op.Set(Gf.Vec3d(position[0], position[1], position[2]))
+        return self._franka_prim_path
 
     # ------------------------------------------------------------------
-    #  Joint sync: copy arm positions from IK Franka -> Ridgeback Franka
+    #  Robot handle initialisation
     # ------------------------------------------------------------------
-    def _init_joint_handles(self):
-        """Initialize Robot handles and discover joint indices."""
-        # Ridgeback Franka robot handle
-        if self._ridgeback_robot is None:
-            try:
-                self._ridgeback_robot = Robot(
-                    prim_path=self._ridgeback_prim_path,
-                    name="ridgeback_franka",
-                )
-                self._ridgeback_robot.initialize()
-                print(f"[INFO] Ridgeback DOFs: {self._ridgeback_robot.dof_names}")
-                print(f"[INFO] Ridgeback Num DOFs: {self._ridgeback_robot.num_dof}")
-            except Exception as exc:
-                print(f"[WARNING] Could not init Ridgeback Robot: {exc}")
-                self._ridgeback_robot = None
-
-        # Discover Ridgeback joint indices
-        if self._ridgeback_robot is not None and not self._ridgeback_arm_indices:
-            try:
-                for name in FRANKA_ARM_JOINT_NAMES:
-                    idx = self._ridgeback_robot.get_dof_index(name)
-                    self._ridgeback_arm_indices.append(idx)
-                for name in FRANKA_GRIPPER_JOINT_NAMES:
-                    idx = self._ridgeback_robot.get_dof_index(name)
-                    self._ridgeback_gripper_indices.append(idx)
-                self._ridgeback_base_x_idx = self._ridgeback_robot.get_dof_index(
-                    "dummy_base_prismatic_x_joint"
-                )
-                self._ridgeback_base_y_idx = self._ridgeback_robot.get_dof_index(
-                    "dummy_base_prismatic_y_joint"
-                )
-                self._ridgeback_base_yaw_idx = self._ridgeback_robot.get_dof_index(
-                    "dummy_base_revolute_z_joint"
-                )
-                print(f"[INFO] Ridgeback arm indices: {self._ridgeback_arm_indices}")
-                print(f"[INFO] Ridgeback base X={self._ridgeback_base_x_idx}, "
-                      f"Y={self._ridgeback_base_y_idx}, Yaw={self._ridgeback_base_yaw_idx}")
-            except Exception as exc:
-                print(f"[WARNING] Could not discover Ridgeback joints: {exc}")
-
-        # FrankaPickPlace's standalone Franka robot handle (for reading IK results)
-        if self._ik_franka_robot is None and self._franka_prim_path:
-            try:
-                self._ik_franka_robot = Robot(
-                    prim_path=self._franka_prim_path,
-                    name="ik_franka",
-                )
-                self._ik_franka_robot.initialize()
-                print(f"[INFO] IK Franka DOFs: {self._ik_franka_robot.dof_names}")
-            except Exception as exc:
-                print(f"[WARNING] Could not init IK Franka Robot: {exc}")
-                self._ik_franka_robot = None
-
-        # Discover IK Franka joint indices
-        if self._ik_franka_robot is not None and not self._ik_arm_indices:
-            try:
-                for name in FRANKA_ARM_JOINT_NAMES:
-                    idx = self._ik_franka_robot.get_dof_index(name)
-                    self._ik_arm_indices.append(idx)
-                for name in FRANKA_GRIPPER_JOINT_NAMES:
-                    idx = self._ik_franka_robot.get_dof_index(name)
-                    self._ik_gripper_indices.append(idx)
-                print(f"[INFO] IK Franka arm indices: {self._ik_arm_indices}")
-            except Exception as exc:
-                print(f"[WARNING] Could not discover IK Franka joints: {exc}")
-
-    def _sync_arm_joints(self):
-        """Copy arm + gripper joint positions from IK Franka to Ridgeback Franka."""
-        if self._ik_franka_robot is None or self._ridgeback_robot is None:
-            return
-        if not self._ik_arm_indices or not self._ridgeback_arm_indices:
+    def _init_robot_handle(self):
+        """Create a Robot handle for the Ridgeback Franka and find joint indices."""
+        if self._robot is not None:
             return
 
         try:
-            # Read current joint positions from the IK-controlled Franka
-            ik_positions = self._ik_franka_robot.get_joint_positions()
-            if ik_positions is None:
-                return
-
-            # Read current Ridgeback joint positions
-            rb_positions = self._ridgeback_robot.get_joint_positions()
-            if rb_positions is None:
-                return
-
-            # Copy arm joint values
-            new_positions = rb_positions.copy()
-            for ik_idx, rb_idx in zip(self._ik_arm_indices, self._ridgeback_arm_indices):
-                new_positions[rb_idx] = ik_positions[ik_idx]
-
-            # Copy gripper joint values
-            for ik_idx, rb_idx in zip(self._ik_gripper_indices, self._ridgeback_gripper_indices):
-                new_positions[rb_idx] = ik_positions[ik_idx]
-
-            # Apply to Ridgeback Franka
-            self._ridgeback_robot.set_joint_positions(new_positions)
+            self._robot = Robot(
+                prim_path=self._franka_prim_path,
+                name="ridgeback_franka",
+            )
+            self._robot.initialize()
+            print(f"[INFO] Robot DOFs: {self._robot.dof_names}")
+            print(f"[INFO] Robot Num DOFs: {self._robot.num_dof}")
         except Exception as exc:
-            if self._step_count % 500 == 0:
-                print(f"[WARNING] Joint sync failed: {exc}")
+            print(f"[WARNING] Could not init Robot handle: {exc}")
+            self._robot = None
+            return
+
+        # Discover base joint indices
+        try:
+            self._base_x_idx = self._robot.get_dof_index("dummy_base_prismatic_x_joint")
+            self._base_y_idx = self._robot.get_dof_index("dummy_base_prismatic_y_joint")
+            self._base_yaw_idx = self._robot.get_dof_index("dummy_base_revolute_z_joint")
+            print(f"[INFO] Base joints: X={self._base_x_idx}, "
+                  f"Y={self._base_y_idx}, Yaw={self._base_yaw_idx}")
+        except Exception as exc:
+            print(f"[WARNING] Could not find base joint indices: {exc}")
 
     # ------------------------------------------------------------------
     #  Scene-prim helpers (cube / table discovery and tracking)
@@ -379,7 +248,7 @@ class RidgebackFrankaMobile:
     def _discover_scene_prims(self, stage):
         """Find cube/table scene prims and cache their original positions."""
         franka_path = self._franka_prim_path or "/World/Franka"
-        skip_prefixes = (franka_path, self._ridgeback_prim_path)
+        skip_prefixes = (franka_path,)
         keywords = ["cube", "table", "block", "target", "goal", "object"]
 
         self._scene_prim_originals = {}
@@ -450,13 +319,13 @@ class RidgebackFrankaMobile:
                 return
 
     def _find_gripper_prim(self, stage):
-        """Find the Ridgeback Franka gripper / hand prim for cube tracking."""
-        # Search under the Ridgeback Franka prim (not the hidden standalone Franka)
-        search_root = self._ridgeback_prim_path
+        """Find the gripper / hand prim for cube tracking."""
+        if self._franka_prim_path is None:
+            return
         candidates = [
-            f"{search_root}/panda_hand",
-            f"{search_root}/panda_link8",
-            f"{search_root}/panda_link7",
+            f"{self._franka_prim_path}/panda_hand",
+            f"{self._franka_prim_path}/panda_link8",
+            f"{self._franka_prim_path}/panda_link7",
         ]
         for path in candidates:
             prim = stage.GetPrimAtPath(path)
@@ -464,27 +333,14 @@ class RidgebackFrankaMobile:
                 self._gripper_prim_path = path
                 print(f"[INFO] Found gripper prim: {path}")
                 return
-        # Fall back to name-based search under Ridgeback
-        root_prim = stage.GetPrimAtPath(search_root)
+        # Fall back to name-based search
+        root_prim = stage.GetPrimAtPath(self._franka_prim_path)
         if root_prim.IsValid():
             for prim in Usd.PrimRange(root_prim):
                 name = prim.GetName().lower()
                 if "hand" in name or "gripper" in name or "tool" in name:
                     self._gripper_prim_path = str(prim.GetPath())
                     print(f"[INFO] Found gripper prim: {self._gripper_prim_path}")
-                    return
-        # Also try under the IK Franka as fallback
-        if self._franka_prim_path:
-            fallback_candidates = [
-                f"{self._franka_prim_path}/panda_hand",
-                f"{self._franka_prim_path}/panda_link8",
-                f"{self._franka_prim_path}/panda_link7",
-            ]
-            for path in fallback_candidates:
-                prim = stage.GetPrimAtPath(path)
-                if prim.IsValid():
-                    self._gripper_prim_path = path
-                    print(f"[INFO] Found gripper prim (IK Franka fallback): {path}")
                     return
         print("[WARNING] Could not find gripper prim")
 
@@ -549,7 +405,7 @@ class RidgebackFrankaMobile:
     #  Franka-prim helpers
     # ------------------------------------------------------------------
     def _find_franka_prim(self, stage):
-        """Find the standalone Franka robot prim created by FrankaPickPlace."""
+        """Find the Franka robot prim created by FrankaPickPlace."""
         possible_paths = [
             "/World/Franka",
             "/World/robot",
@@ -567,9 +423,7 @@ class RidgebackFrankaMobile:
             if "/World/" in path and prim.IsA(UsdGeom.Xform):
                 children = [c.GetName() for c in prim.GetChildren()]
                 if any("panda" in c.lower() for c in children):
-                    # Make sure it's not our Ridgeback Franka
-                    if path != self._ridgeback_prim_path:
-                        return path
+                    return path
 
         return "/World/Franka"
 
@@ -577,10 +431,10 @@ class RidgebackFrankaMobile:
     #  Base movement
     # ------------------------------------------------------------------
     def _move_towards(self, target_pos):
-        """Move the Ridgeback Franka base toward target_pos.
+        """Move the Ridgeback base toward target_pos.
 
-        Uses the dummy prismatic joints on the Ridgeback Franka for base
-        movement.  Returns True when the base has arrived (within 2 cm).
+        Uses the dummy prismatic joints for base movement.
+        Returns True when the base has arrived (within 2 cm).
         """
         direction = target_pos - self._current_position
         direction[2] = 0
@@ -600,39 +454,34 @@ class RidgebackFrankaMobile:
         return False
 
     def _set_base_position(self, position):
-        """Move the Ridgeback Franka base to the given world position.
+        """Move the Ridgeback base to the given world position.
 
-        Tries multiple strategies:
-        1. Dummy prismatic joint commands on the Ridgeback Franka articulation
-        2. set_world_pose() on the Ridgeback Robot handle
-        3. Direct USD transform update as fallback
+        Uses the dummy prismatic joints on the Ridgeback Franka articulation.
+        Falls back to USD transform if joints are not available.
         """
         moved = False
 
-        # Strategy 1: Use dummy prismatic joints (most natural for Ridgeback)
-        if (self._ridgeback_robot is not None
-                and self._ridgeback_base_x_idx >= 0
-                and self._ridgeback_base_y_idx >= 0):
+        # Strategy 1: Use dummy prismatic joints
+        if (self._robot is not None
+                and self._base_x_idx >= 0
+                and self._base_y_idx >= 0):
             try:
-                joint_positions = self._ridgeback_robot.get_joint_positions()
+                joint_positions = self._robot.get_joint_positions()
                 if joint_positions is not None:
                     new_positions = joint_positions.copy()
-                    # The dummy prismatic joints move the base relative to spawn
-                    # Since we spawned at start_position, the joint value IS the
-                    # world position (start_position is [0,0,0])
-                    new_positions[self._ridgeback_base_x_idx] = position[0]
-                    new_positions[self._ridgeback_base_y_idx] = position[1]
-                    self._ridgeback_robot.set_joint_positions(new_positions)
+                    new_positions[self._base_x_idx] = position[0]
+                    new_positions[self._base_y_idx] = position[1]
+                    self._robot.set_joint_positions(new_positions)
                     moved = True
             except Exception:
                 pass
 
         # Strategy 2: set_world_pose on the Robot handle
-        if not moved and self._ridgeback_robot is not None:
+        if not moved and self._robot is not None:
             try:
                 pos = np.array([position[0], position[1], 0.0])
                 orient = np.array([1.0, 0.0, 0.0, 0.0])
-                self._ridgeback_robot.set_world_pose(position=pos, orientation=orient)
+                self._robot.set_world_pose(position=pos, orientation=orient)
                 moved = True
             except Exception:
                 pass
@@ -640,41 +489,13 @@ class RidgebackFrankaMobile:
         # Strategy 3: Direct USD transform update
         if not moved:
             stage = omni.usd.get_context().get_stage()
-            prim = stage.GetPrimAtPath(self._ridgeback_prim_path)
+            prim = stage.GetPrimAtPath(self._franka_prim_path)
             if prim.IsValid():
                 xf = UsdGeom.Xformable(prim)
                 for op in xf.GetOrderedXformOps():
                     if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
                         op.Set(Gf.Vec3d(position[0], position[1], 0.0))
                         break
-
-        # Also move the hidden IK Franka to the same position so that
-        # FrankaPickPlace's IK computations are in the correct frame
-        self._move_ik_franka(position)
-
-    def _move_ik_franka(self, position):
-        """Move the hidden IK Franka to match the Ridgeback's position."""
-        if self._franka_prim_path is None:
-            return
-        stage = omni.usd.get_context().get_stage()
-
-        if self._ik_franka_robot is not None:
-            try:
-                pos = np.array([position[0], position[1], 0.0])
-                orient = np.array([1.0, 0.0, 0.0, 0.0])
-                self._ik_franka_robot.set_world_pose(position=pos, orientation=orient)
-                return
-            except Exception:
-                pass
-
-        # Fallback: USD transform
-        franka_prim = stage.GetPrimAtPath(self._franka_prim_path)
-        if franka_prim.IsValid():
-            xf = UsdGeom.Xformable(franka_prim)
-            for op in xf.GetOrderedXformOps():
-                if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
-                    op.Set(Gf.Vec3d(position[0], position[1], 0.0))
-                    break
 
     # ------------------------------------------------------------------
     #  Reset
@@ -687,18 +508,15 @@ class RidgebackFrankaMobile:
         self._settled_steps = 0
         self._current_position = self.start_position.copy()
 
-        # Initialize joint handles
-        self._init_joint_handles()
+        # Initialize robot handle and joint indices
+        self._init_robot_handle()
 
-        # Reset Ridgeback base position
+        # Reset base position
         self._set_base_position(self.start_position)
 
         # Reset FrankaPickPlace (arm IK)
         self.franka_pick_place.reset()
         self._apply_scene_offset(omni.usd.get_context().get_stage())
-
-        # Sync arm joints after reset
-        self._sync_arm_joints()
 
         print(f"[Reset] Ridgeback Franka at start position {self.start_position}")
 
@@ -718,8 +536,6 @@ class RidgebackFrankaMobile:
 
         elif self._state == MobileState.MOVE_TO_CUBE:
             reached = self._move_towards(self.table_position)
-            # Sync arm joints during movement so Ridgeback arm stays in position
-            self._sync_arm_joints()
             if reached or self._state_step_count > 2000:
                 print("[STATE] MOVE_TO_CUBE -> WAIT_SETTLED")
                 self._state = MobileState.WAIT_SETTLED
@@ -728,7 +544,6 @@ class RidgebackFrankaMobile:
 
         elif self._state == MobileState.WAIT_SETTLED:
             self._settled_steps += 1
-            self._sync_arm_joints()
             if self._settled_steps > 30:
                 print("[STATE] WAIT_SETTLED -> PICK_CUBE")
                 self._state = MobileState.PICK_CUBE
@@ -738,12 +553,8 @@ class RidgebackFrankaMobile:
                 self._apply_scene_offset(stage)
 
         elif self._state == MobileState.PICK_CUBE:
-            # FrankaPickPlace runs IK on the hidden Franka
             self.franka_pick_place.forward(ik_method)
             self._pick_steps += 1
-
-            # Sync arm positions to make the Ridgeback Franka arm mirror the IK
-            self._sync_arm_joints()
 
             cube_lifted = self._is_cube_lifted(stage)
             pick_done = self.franka_pick_place.is_done()
@@ -764,7 +575,6 @@ class RidgebackFrankaMobile:
         elif self._state == MobileState.RETURN_TO_START:
             reached = self._move_towards(self.start_position)
             self._position_cube_at_gripper(stage)
-            self._sync_arm_joints()
 
             if reached or self._state_step_count > 2000:
                 print("[STATE] RETURN_TO_START -> WAIT_SETTLED_RETURN")
@@ -775,7 +585,6 @@ class RidgebackFrankaMobile:
         elif self._state == MobileState.WAIT_SETTLED_RETURN:
             self._settled_steps += 1
             self._position_cube_at_gripper(stage)
-            self._sync_arm_joints()
 
             if self._settled_steps > 30:
                 print("[STATE] WAIT_SETTLED_RETURN -> PLACE_CUBE")
@@ -785,7 +594,6 @@ class RidgebackFrankaMobile:
 
         elif self._state == MobileState.PLACE_CUBE:
             self._place_steps += 1
-            self._sync_arm_joints()
             descent_rate = 0.002
             cube_pos = self._get_cube_position(stage)
             if cube_pos is not None and cube_pos[2] > 0.05:
@@ -825,7 +633,7 @@ def main():
     franka_pick_place.setup_scene()
     simulation_app.update()
 
-    # Wrap the Franka with mobile-base navigation using actual Ridgeback USD
+    # Replace the standalone Franka with the Ridgeback Franka USD model
     stage = omni.usd.get_context().get_stage()
     mobile = RidgebackFrankaMobile(
         franka_pick_place, cube_offset=args.cube_offset
