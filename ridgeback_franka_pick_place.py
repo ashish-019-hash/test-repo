@@ -72,6 +72,7 @@ from isaacsim.core.api.robots import Robot
 from isaacsim.core.simulation_manager import SimulationManager
 from isaacsim.storage.native import get_assets_root_path
 import isaacsim.core.utils.stage as stage_utils
+from isaacsim.core.utils.types import ArticulationAction
 
 # ---------------------------------------------------------------------------
 #  Joint names (from ridgeback_franka.usd)
@@ -343,7 +344,7 @@ class RidgebackFrankaPickPlace:
         self._robot.set_joint_positions(initial_positions)
 
         # Also set position targets so the PD controllers hold this pose
-        self._robot.set_joint_position_targets(initial_positions)
+        self._robot.apply_action(ArticulationAction(joint_positions=initial_positions))
 
         self._state = self.NAVIGATE_TO_PICK
         self._wait_steps = 0
@@ -451,21 +452,21 @@ class RidgebackFrankaPickPlace:
         targets = self._robot.get_joint_positions().copy()
         targets[self._base_x_idx] = new_xy[0]
         targets[self._base_y_idx] = new_xy[1]
-        self._robot.set_joint_position_targets(targets)
+        self._robot.apply_action(ArticulationAction(joint_positions=targets))
 
     def _set_arm_positions(self, arm_positions):
         """Set arm joint position *targets* (PD controller drives smoothly)."""
         targets = self._robot.get_joint_positions().copy()
         for i, idx in enumerate(self._arm_joint_indices):
             targets[idx] = arm_positions[i]
-        self._robot.set_joint_position_targets(targets)
+        self._robot.apply_action(ArticulationAction(joint_positions=targets))
 
     def _set_gripper(self, width):
         """Set gripper finger position *targets*."""
         targets = self._robot.get_joint_positions().copy()
         for idx in self._gripper_joint_indices:
             targets[idx] = width
-        self._robot.set_joint_position_targets(targets)
+        self._robot.apply_action(ArticulationAction(joint_positions=targets))
 
 
 # ---------------------------------------------------------------------------
