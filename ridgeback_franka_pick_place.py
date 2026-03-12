@@ -333,9 +333,17 @@ class RidgebackFrankaPickPlace:
         for name in FRANKA_GRIPPER_JOINT_NAMES:
             self._gripper_joint_indices.append(self._robot.get_dof_index(name))
 
-        # Move arm to home and open gripper
-        self._set_arm_positions(FRANKA_HOME)
-        self._set_gripper(GRIPPER_OPEN)
+        # Set initial joint positions (before physics drives, so direct set is safe)
+        initial_positions = np.zeros(self._robot.num_dof)
+        for i, idx in enumerate(self._arm_joint_indices):
+            initial_positions[idx] = FRANKA_HOME[i]
+        for idx in self._gripper_joint_indices:
+            initial_positions[idx] = GRIPPER_OPEN
+        # Base joints start at 0 (robot at spawn position)
+        self._robot.set_joint_positions(initial_positions)
+
+        # Also set position targets so the PD controllers hold this pose
+        self._robot.set_joint_position_targets(initial_positions)
 
         self._state = self.NAVIGATE_TO_PICK
         self._wait_steps = 0
@@ -422,7 +430,9 @@ class RidgebackFrankaPickPlace:
 
     def _navigate_base(self, target_xy, next_state):
         """Move the Ridgeback base toward target_xy by stepping the dummy
-        prismatic joints.  Transitions to next_state once within tolerance."""
+        prismatic joint *targets*.  Transitions to next_state once within
+        tolerance.  Uses set_joint_position_targets so the physics PD
+        controllers drive the base smoothly."""
         current_xy = self._get_base_xy()
         error = target_xy - current_xy
         distance = np.linalg.norm(error)
@@ -438,24 +448,24 @@ class RidgebackFrankaPickPlace:
         step = direction * min(BASE_MOVE_STEP_SIZE, distance)
         new_xy = current_xy + step
 
-        joint_positions = self._robot.get_joint_positions().copy()
-        joint_positions[self._base_x_idx] = new_xy[0]
-        joint_positions[self._base_y_idx] = new_xy[1]
-        self._robot.set_joint_positions(joint_positions)
+        targets = self._robot.get_joint_positions().copy()
+        targets[self._base_x_idx] = new_xy[0]
+        targets[self._base_y_idx] = new_xy[1]
+        self._robot.set_joint_position_targets(targets)
 
     def _set_arm_positions(self, arm_positions):
-        """Set the 7 Franka arm joint positions without disturbing other joints."""
-        joint_positions = self._robot.get_joint_positions().copy()
+        """Set arm joint position *targets* (PD controller drives smoothly)."""
+        targets = self._robot.get_joint_positions().copy()
         for i, idx in enumerate(self._arm_joint_indices):
-            joint_positions[idx] = arm_positions[i]
-        self._robot.set_joint_positions(joint_positions)
+            targets[idx] = arm_positions[i]
+        self._robot.set_joint_position_targets(targets)
 
     def _set_gripper(self, width):
-        """Set gripper finger joint positions."""
-        joint_positions = self._robot.get_joint_positions().copy()
+        """Set gripper finger position *targets*."""
+        targets = self._robot.get_joint_positions().copy()
         for idx in self._gripper_joint_indices:
-            joint_positions[idx] = width
-        self._robot.set_joint_positions(joint_positions)
+            targets[idx] = width
+        self._robot.set_joint_position_targets(targets)
 
 
 # ---------------------------------------------------------------------------
