@@ -93,24 +93,46 @@ FRANKA_GRIPPER_JOINT_NAMES = [
 # ---------------------------------------------------------------------------
 #  Scene configuration
 # ---------------------------------------------------------------------------
-# Robot starts at origin; table is placed 0.6m in front (+x)
-ROBOT_START_POSITION = np.array([0.0, 0.0, 0.0])
+# The Ridgeback Franka base is roughly 0.96m x 0.79m x 0.33m.
+# The Franka arm base sits on top at approximately Z = 0.93m.
+# The arm can reach about 0.855m forward from its base.
+#
+# Robot starts well behind the table so it must navigate forward.
+ROBOT_START_POSITION = np.array([-1.5, 0.0, 0.0])
 
-# Table position and dimensions
-TABLE_POSITION = np.array([0.65, 0.0, 0.25])
-TABLE_SCALE = np.array([0.5, 0.8, 0.5])
+# Table: positioned so the arm can reach it when the base is nearby.
+# FixedCuboid size=1.0 * scale gives the full dimensions.
+# scale=[0.6, 0.8, 0.02] → thin tabletop 0.6m x 0.8m at Z=0.72
+TABLE_POSITION = np.array([0.5, 0.0, 0.72])
+TABLE_SCALE = np.array([0.6, 0.8, 0.02])
 
-# Cube (object to pick) on the table
-CUBE_POSITION = np.array([0.5, 0.0, 0.55])
+# Table legs (visual only, 4 thin pillars)
+TABLE_LEG_SCALE = np.array([0.04, 0.04, 0.72])
+TABLE_LEG_OFFSETS = [
+    np.array([ 0.25,  0.35, 0.36]),
+    np.array([ 0.25, -0.35, 0.36]),
+    np.array([-0.25,  0.35, 0.36]),
+    np.array([-0.25, -0.35, 0.36]),
+]
+
+# Cube (object to pick) on the table surface
+# Table top is at Z ≈ 0.73, cube center slightly above
+CUBE_POSITION = np.array([0.5, 0.0, 0.76])
 CUBE_SIZE = 0.05
 
-# Place target position (to the side)
-PLACE_POSITION = np.array([0.5, 0.6, 0.55])
+# Place target position (offset in Y from pick position)
+PLACE_POSITION = np.array([0.5, 0.5, 0.76])
 
-# Base approach positions (dummy prismatic joint values)
-# joint value = desired world X/Y since robot starts at origin
-PICK_BASE_XY = np.array([0.0, 0.0])       # arm can reach table from origin
-PLACE_BASE_XY = np.array([0.0, 0.6])      # slide sideways to place location
+# Base approach positions (dummy prismatic joint values).
+# The joints start at 0 when the robot is at ROBOT_START_POSITION.
+# Joint value V moves the base V metres from its spawn location.
+# So world_x = ROBOT_START_POSITION[0] + joint_x.
+#
+# Pick:  we want the base near X ≈ 0.0 so the arm (at ~X+0.0) can reach
+#         the table at X = 0.5.  joint_x = 0.0 - (-1.5) = 1.5
+# Place: same X, shift Y by 0.5 → joint_y = 0.5
+PICK_BASE_XY = np.array([1.5, 0.0])
+PLACE_BASE_XY = np.array([1.5, 0.5])
 
 # Navigation parameters
 POSITION_TOLERANCE = 0.02       # metres
@@ -124,23 +146,31 @@ GRIPPER_OPEN = 0.04
 GRIPPER_CLOSED = 0.001
 
 # Arm poses for pick-and-place (joint angles for panda_joint1..7)
-# These are tuned so the gripper reaches forward and down toward the table.
-#   j1: base rotation
-#   j2: shoulder lift (+ = forward tilt)
-#   j3: elbow rotation
-#   j4: elbow flex (more negative = more bent)
-#   j5: forearm rotation
-#   j6: wrist flex (higher = more wrist bend)
-#   j7: wrist rotation
-ARM_PRE_GRASP = np.array([0.0, 0.15, 0.0, -1.8, 0.0, 2.0, 0.785])
-ARM_GRASP = np.array([0.0, 0.45, 0.0, -1.45, 0.0, 1.95, 0.785])
-ARM_LIFT = np.array([0.0, -0.2, 0.0, -2.0, 0.0, 1.8, 0.785])
-ARM_PRE_PLACE = np.array([0.0, 0.15, 0.0, -1.8, 0.0, 2.0, 0.785])
-ARM_PLACE = np.array([0.0, 0.45, 0.0, -1.45, 0.0, 1.95, 0.785])
+# The arm base is at Z ≈ 0.93m.  Table top is at Z ≈ 0.73m.
+# The arm must reach forward ~0.5m and down ~0.2m.
+#
+#   j1: base rotation         (0 = forward)
+#   j2: shoulder lift          (+ = tilt forward/down)
+#   j3: elbow rotation         (0 = neutral)
+#   j4: elbow flex             (always negative; more negative = more bent)
+#   j5: forearm rotation       (0 = neutral)
+#   j6: wrist flex             (+ = bend wrist down)
+#   j7: wrist rotation         (0.785 ≈ 45 deg)
+#
+# PRE_GRASP  – arm extended forward, gripper ~10 cm above table
+ARM_PRE_GRASP = np.array([0.0, -0.35, 0.0, -2.0, 0.0, 1.65, 0.785])
+# GRASP      – lower gripper to table surface / cube height
+ARM_GRASP = np.array([0.0, 0.05, 0.0, -1.55, 0.0, 1.60, 0.785])
+# LIFT       – raise cube above table
+ARM_LIFT = np.array([0.0, -0.60, 0.0, -2.2, 0.0, 1.80, 0.785])
+# PRE_PLACE  – same as pre-grasp height
+ARM_PRE_PLACE = np.array([0.0, -0.35, 0.0, -2.0, 0.0, 1.65, 0.785])
+# PLACE      – lower to release height
+ARM_PLACE = np.array([0.0, 0.05, 0.0, -1.55, 0.0, 1.60, 0.785])
 
 # Settle time (sim steps) after arm/gripper commands
-ARM_SETTLE_STEPS = 60
-GRIPPER_SETTLE_STEPS = 30
+ARM_SETTLE_STEPS = 90
+GRIPPER_SETTLE_STEPS = 40
 
 
 # ---------------------------------------------------------------------------
@@ -173,9 +203,10 @@ class RidgebackFrankaPickPlace:
     LIFT = 4
     NAVIGATE_TO_PLACE = 5
     PRE_PLACE = 6
-    OPEN_GRIPPER = 7
-    RETREAT = 8
-    DONE = 9
+    PLACE_APPROACH = 7
+    OPEN_GRIPPER = 8
+    RETREAT = 9
+    DONE = 10
 
     STATE_NAMES = [
         "NAVIGATE_TO_PICK",
@@ -185,6 +216,7 @@ class RidgebackFrankaPickPlace:
         "LIFT",
         "NAVIGATE_TO_PLACE",
         "PRE_PLACE",
+        "PLACE_APPROACH",
         "OPEN_GRIPPER",
         "RETREAT",
         "DONE",
@@ -230,7 +262,7 @@ class RidgebackFrankaPickPlace:
             )
         )
 
-        # Table (static box)
+        # Table top (thin surface)
         self._world.scene.add(
             FixedCuboid(
                 prim_path="/World/Table",
@@ -240,6 +272,19 @@ class RidgebackFrankaPickPlace:
                 color=np.array([0.5, 0.3, 0.1]),
             )
         )
+
+        # Table legs (4 thin pillars for visual realism)
+        for i, offset in enumerate(TABLE_LEG_OFFSETS):
+            leg_pos = np.array([TABLE_POSITION[0], TABLE_POSITION[1], 0.0]) + offset
+            self._world.scene.add(
+                FixedCuboid(
+                    prim_path=f"/World/TableLeg{i}",
+                    name=f"table_leg_{i}",
+                    position=leg_pos,
+                    scale=TABLE_LEG_SCALE,
+                    color=np.array([0.4, 0.25, 0.1]),
+                )
+            )
 
         # Cube to pick up (dynamic)
         self._cube = self._world.scene.add(
@@ -338,6 +383,11 @@ class RidgebackFrankaPickPlace:
         elif self._state == self.PRE_PLACE:
             self._set_arm_positions(ARM_PRE_PLACE)
             self._wait_steps = ARM_SETTLE_STEPS
+            self._transition(self.PLACE_APPROACH)
+
+        elif self._state == self.PLACE_APPROACH:
+            self._set_arm_positions(ARM_PLACE)
+            self._wait_steps = ARM_SETTLE_STEPS
             self._transition(self.OPEN_GRIPPER)
 
         elif self._state == self.OPEN_GRIPPER:
@@ -432,6 +482,11 @@ def main():
     # Reset
     task.reset()
     simulation_app.update()
+
+    # Let physics settle for a few seconds so the robot lands on the ground
+    print("[Main] Stabilising physics (120 steps) ...")
+    for _ in range(120):
+        simulation_app.update()
 
     # Main loop
     print("[Main] Starting pick-and-place ...")
