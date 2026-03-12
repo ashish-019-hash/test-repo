@@ -100,7 +100,7 @@ FRANKA_GRIPPER_JOINT_NAMES = [
 
 # -- Task configuration -----------------------------------------------------
 # Starting position for the Ridgeback (away from the table)
-ROBOT_START_POSITION = np.array([-1.5, 0.0, 0.0])
+ROBOT_START_POSITION = np.array([-1.0, 0.0, 0.0])
 
 # Table position and dimensions
 TABLE_POSITION = np.array([0.5, 0.0, 0.25])
@@ -110,18 +110,26 @@ TABLE_SCALE = np.array([0.5, 0.8, 0.5])
 CUBE_POSITION = np.array([0.5, 0.0, 0.55])
 CUBE_SIZE = 0.05
 
-# Pick approach position for the base (close enough for the arm to reach)
-PICK_BASE_XY = np.array([-0.2, 0.0])  # x, y for the base
+# Base approach positions -- JOINT-SPACE offsets for the dummy prismatic joints.
+# The dummy prismatic joints start at 0 when the robot is at ROBOT_START_POSITION.
+# Setting a joint to value V moves the base V metres from its spawn location.
+# So world position = ROBOT_START_POSITION[:2] + joint_offset.
+#
+# Pick:  we want the base at world X ≈ 0.0  so the arm can reach the table at X=0.5
+#         joint_x = 0.0 - (-1.0) = 1.0
+# Place: we want the base at world (0.0, 0.7)
+#         joint_x = 1.0, joint_y = 0.7
+PICK_BASE_XY = np.array([1.0, 0.0])
 
 # Place target position for the cube
-PLACE_CUBE_POSITION = np.array([0.5, 0.8, 0.55])
+PLACE_CUBE_POSITION = np.array([0.5, 0.7, 0.55])
 
-# Place approach position for the base
-PLACE_BASE_XY = np.array([-0.2, 0.8])  # x, y for the base
+# Place approach position for the base (joint-space)
+PLACE_BASE_XY = np.array([1.0, 0.7])
 
 # Navigation parameters
-POSITION_TOLERANCE = 0.05       # meters -- close enough to target
-BASE_MOVE_STEP_SIZE = 0.005     # meters per sim step for smooth base motion
+POSITION_TOLERANCE = 0.02       # metres -- close enough to target
+BASE_MOVE_STEP_SIZE = 0.02      # metres per sim step (≈1.2 m/s at 60 Hz)
 
 # Franka arm home (stowed) joint positions
 FRANKA_HOME_POSITIONS = np.array([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785])
@@ -247,7 +255,7 @@ class RidgebackFrankaPickPlace:
             FixedCuboid(
                 prim_path="/World/PlaceTarget",
                 name="place_target",
-                position=PLACE_CUBE_POSITION,
+                position=PLACE_CUBE_POSITION + np.array([0.0, 0.0, -0.025]),
                 scale=np.array([CUBE_SIZE, CUBE_SIZE, 0.005]),
                 color=np.array([0.0, 1.0, 0.0]),
             )
@@ -299,6 +307,16 @@ class RidgebackFrankaPickPlace:
         )
         print(f"[Reset] Arm joints: {self._arm_joint_indices}")
         print(f"[Reset] Gripper joints: {self._gripper_joint_indices}")
+        print(
+            f"[Reset] Pick base target: joint=({PICK_BASE_XY[0]:.2f}, {PICK_BASE_XY[1]:.2f}) "
+            f"-> world approx ({ROBOT_START_POSITION[0]+PICK_BASE_XY[0]:.2f}, "
+            f"{ROBOT_START_POSITION[1]+PICK_BASE_XY[1]:.2f})"
+        )
+        print(
+            f"[Reset] Place base target: joint=({PLACE_BASE_XY[0]:.2f}, {PLACE_BASE_XY[1]:.2f}) "
+            f"-> world approx ({ROBOT_START_POSITION[0]+PLACE_BASE_XY[0]:.2f}, "
+            f"{ROBOT_START_POSITION[1]+PLACE_BASE_XY[1]:.2f})"
+        )
 
     def forward(self):
         """Execute one step of the pick-and-place state machine."""
@@ -311,9 +329,9 @@ class RidgebackFrankaPickPlace:
             self._navigate_base(PICK_BASE_XY, next_state=self.PRE_GRASP)
 
         elif self._state == self.PRE_GRASP:
-            # Move arm to pre-grasp pose above the cube
+            # Move arm to pre-grasp pose – reaching forward, gripper above cube
             pre_grasp_positions = np.array(
-                [0.0, -0.4, 0.0, -1.8, 0.0, 1.4, 0.785]
+                [0.0, 0.3, 0.0, -1.5, 0.0, 2.0, 0.785]
             )
             self._set_arm_positions(pre_grasp_positions)
             self._set_gripper(GRIPPER_OPEN)
@@ -321,9 +339,9 @@ class RidgebackFrankaPickPlace:
             self._transition(self.GRASP_APPROACH)
 
         elif self._state == self.GRASP_APPROACH:
-            # Lower arm to grasp position
+            # Lower arm to grasp position (more forward tilt, elbow extended)
             grasp_positions = np.array(
-                [0.0, 0.0, 0.0, -1.5, 0.0, 1.5, 0.785]
+                [0.0, 0.5, 0.0, -1.2, 0.0, 1.8, 0.785]
             )
             self._set_arm_positions(grasp_positions)
             self._wait_steps = 60
@@ -335,9 +353,9 @@ class RidgebackFrankaPickPlace:
             self._transition(self.LIFT)
 
         elif self._state == self.LIFT:
-            # Lift the cube by returning to pre-grasp pose
+            # Lift the cube by returning to pre-grasp height
             lift_positions = np.array(
-                [0.0, -0.4, 0.0, -1.8, 0.0, 1.4, 0.785]
+                [0.0, 0.3, 0.0, -1.5, 0.0, 2.0, 0.785]
             )
             self._set_arm_positions(lift_positions)
             self._wait_steps = 60
@@ -347,9 +365,9 @@ class RidgebackFrankaPickPlace:
             self._navigate_base(PLACE_BASE_XY, next_state=self.PRE_PLACE)
 
         elif self._state == self.PRE_PLACE:
-            # Move arm to pre-place pose
+            # Move arm to pre-place pose (same as pre-grasp)
             pre_place_positions = np.array(
-                [0.0, -0.4, 0.0, -1.8, 0.0, 1.4, 0.785]
+                [0.0, 0.3, 0.0, -1.5, 0.0, 2.0, 0.785]
             )
             self._set_arm_positions(pre_place_positions)
             self._wait_steps = 60
@@ -358,7 +376,7 @@ class RidgebackFrankaPickPlace:
         elif self._state == self.PLACE_APPROACH:
             # Lower arm to place position
             place_positions = np.array(
-                [0.0, 0.0, 0.0, -1.5, 0.0, 1.5, 0.785]
+                [0.0, 0.5, 0.0, -1.2, 0.0, 1.8, 0.785]
             )
             self._set_arm_positions(place_positions)
             self._wait_steps = 60
@@ -398,15 +416,20 @@ class RidgebackFrankaPickPlace:
 
     def _navigate_base(self, target_xy, next_state):
         """
-        Move the Ridgeback base toward target_xy (2D) by incrementally
-        setting the dummy prismatic joint positions each step.
-        Transitions to next_state once within tolerance.
+        Move the Ridgeback base toward target_xy (2D joint-space offset)
+        by incrementally setting the dummy prismatic joint positions each
+        step.  Transitions to *next_state* once within tolerance.
         """
         current_xy = self._get_base_xy()
         error = target_xy - current_xy
         distance = np.linalg.norm(error)
 
         if distance < POSITION_TOLERANCE:
+            world_xy = current_xy + ROBOT_START_POSITION[:2]
+            print(
+                f"[Nav] Arrived – joint=({current_xy[0]:.2f}, {current_xy[1]:.2f})  "
+                f"world approx ({world_xy[0]:.2f}, {world_xy[1]:.2f})"
+            )
             self._transition(next_state)
             return
 
