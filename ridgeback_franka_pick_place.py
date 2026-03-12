@@ -20,6 +20,14 @@ This script demonstrates a mobile manipulation pick-and-place task using the
 Clearpath Ridgeback omnidirectional mobile base with a Franka Emika Panda arm
 mounted on top.
 
+The ridgeback_franka.usd asset uses dummy prismatic/revolute joints for the
+base (not individual wheel joints):
+  - dummy_base_prismatic_x_joint  (base X translation)
+  - dummy_base_prismatic_y_joint  (base Y translation)
+  - dummy_base_revolute_z_joint   (base yaw rotation)
+  - panda_joint1..7               (Franka arm)
+  - panda_finger_joint1/2         (gripper)
+
 The workflow:
   1. Navigate the Ridgeback base to the pick location (near a table with a cube).
   2. Use the Franka arm to pick up the cube from the table.
@@ -61,42 +69,21 @@ from isaacsim.core.api.objects import DynamicCuboid, FixedCuboid
 from isaacsim.core.api.robots import Robot
 from isaacsim.core.utils.types import ArticulationAction
 from isaacsim.core.simulation_manager import SimulationManager
-from isaacsim.robot.wheeled_robots.controllers.holonomic_controller import (
-    HolonomicController,
-)
 from isaacsim.storage.native import get_assets_root_path
 import isaacsim.core.utils.stage as stage_utils
 
-# ── Ridgeback mecanum wheel configuration ──────────────────────────────────
-# The Clearpath Ridgeback has 4 mecanum wheels in a rectangular arrangement.
-# Approximate parameters based on the Ridgeback specifications:
-#   - Wheel radius: ~0.076 m (7.6 cm)
-#   - Robot half-length (front-back): ~0.272 m
-#   - Robot half-width (left-right): ~0.2745 m
-RIDGEBACK_WHEEL_RADIUS = [0.076, 0.076, 0.076, 0.076]
-RIDGEBACK_WHEEL_POSITIONS = [
-    [0.272, -0.2745, 0.0],   # front-left
-    [0.272, 0.2745, 0.0],    # front-right
-    [-0.272, -0.2745, 0.0],  # rear-left
-    [-0.272, 0.2745, 0.0],   # rear-right
-]
-RIDGEBACK_WHEEL_ORIENTATIONS = [
-    [0, 0, 0, 1],   # front-left
-    [0, 0, 0, 1],   # front-right
-    [0, 0, 0, 1],   # rear-left
-    [0, 0, 0, 1],   # rear-right
-]
-RIDGEBACK_MECANUM_ANGLES = [45.0, -45.0, -45.0, 45.0]  # degrees
+# -- Joint names (from the ridgeback_franka.usd asset) ----------------------
+# The Ridgeback base is controlled via dummy prismatic/revolute joints
+# (not individual wheel joints). This simplifies base navigation to direct
+# position control on X, Y, and yaw.
+#
+# Full DOF list (12 total):
+#   panda_joint2, panda_joint3, panda_joint1, panda_joint4, panda_joint5,
+#   panda_joint6, dummy_base_revolute_z_joint, panda_joint7,
+#   dummy_base_prismatic_y_joint, dummy_base_prismatic_x_joint,
+#   panda_finger_joint1, panda_finger_joint2
 
-# Ridgeback wheel joint names (typical for the ridgeback_franka.usd asset)
-RIDGEBACK_WHEEL_JOINT_NAMES = [
-    "front_left_wheel",
-    "front_right_wheel",
-    "rear_left_wheel",
-    "rear_right_wheel",
-]
-
-# Franka arm joint names (7 DOF + 2 gripper fingers)
+# Franka arm joint names (7 DOF)
 FRANKA_ARM_JOINT_NAMES = [
     "panda_joint1",
     "panda_joint2",
@@ -111,7 +98,7 @@ FRANKA_GRIPPER_JOINT_NAMES = [
     "panda_finger_joint2",
 ]
 
-# ── Task configuration ─────────────────────────────────────────────────────
+# -- Task configuration -----------------------------------------------------
 # Starting position for the Ridgeback (away from the table)
 ROBOT_START_POSITION = np.array([-1.5, 0.0, 0.0])
 
@@ -124,18 +111,17 @@ CUBE_POSITION = np.array([0.5, 0.0, 0.55])
 CUBE_SIZE = 0.05
 
 # Pick approach position for the base (close enough for the arm to reach)
-PICK_BASE_POSITION = np.array([-0.2, 0.0])  # x, y for the base
+PICK_BASE_XY = np.array([-0.2, 0.0])  # x, y for the base
 
 # Place target position for the cube
 PLACE_CUBE_POSITION = np.array([0.5, 0.8, 0.55])
 
 # Place approach position for the base
-PLACE_BASE_POSITION = np.array([-0.2, 0.8])  # x, y for the base
+PLACE_BASE_XY = np.array([-0.2, 0.8])  # x, y for the base
 
-# Navigation tolerances
-POSITION_TOLERANCE = 0.05  # meters
-BASE_LINEAR_SPEED = 0.3    # m/s
-BASE_ANGULAR_SPEED = 0.0   # rad/s (no rotation needed for straight-line moves)
+# Navigation parameters
+POSITION_TOLERANCE = 0.05       # meters -- close enough to target
+BASE_MOVE_STEP_SIZE = 0.005     # meters per sim step for smooth base motion
 
 # Franka arm home (stowed) joint positions
 FRANKA_HOME_POSITIONS = np.array([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785])
@@ -144,14 +130,14 @@ FRANKA_HOME_POSITIONS = np.array([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785])
 GRIPPER_OPEN = 0.04    # meters (each finger)
 GRIPPER_CLOSED = 0.0   # meters (each finger)
 
-# Pre-grasp and grasp heights (relative to the Franka base on the Ridgeback)
-PRE_GRASP_HEIGHT_OFFSET = 0.15  # approach from above
-GRASP_HEIGHT_OFFSET = 0.0       # at the cube level
-
 
 class RidgebackFrankaPickPlace:
     """
     Orchestrates a pick-and-place task using the Ridgeback Franka mobile manipulator.
+
+    The Ridgeback base is controlled by setting positions on the dummy prismatic
+    joints (X/Y) and the dummy revolute joint (yaw). The Franka arm and gripper
+    are controlled via joint position commands.
 
     State machine:
       NAVIGATE_TO_PICK  -> Move the base near the pick location
@@ -198,8 +184,9 @@ class RidgebackFrankaPickPlace:
         self._robot = None
         self._cube = None
         self._world = None
-        self._base_controller = None
-        self._wheel_joint_indices = []
+        self._base_x_idx = -1
+        self._base_y_idx = -1
+        self._base_yaw_idx = -1
         self._arm_joint_indices = []
         self._gripper_joint_indices = []
         self._wait_steps = 0
@@ -269,15 +256,25 @@ class RidgebackFrankaPickPlace:
         print("[Setup] Scene created with Ridgeback Franka, table, and cube.")
 
     def reset(self):
-        """Reset the world, discover joint indices, and initialise controllers."""
+        """Reset the world, discover joint indices, and initialise the robot."""
         self._world.reset()
 
-        # Discover joint indices for wheels, arm, and gripper
-        self._wheel_joint_indices = []
-        for name in RIDGEBACK_WHEEL_JOINT_NAMES:
-            idx = self._robot.get_dof_index(name)
-            self._wheel_joint_indices.append(idx)
+        # Print discovered DOF names for debugging
+        print(f"[Reset] DOF names: {self._robot.dof_names}")
+        print(f"[Reset] Num DOFs:  {self._robot.num_dof}")
 
+        # Discover base joint indices (dummy prismatic/revolute)
+        self._base_x_idx = self._robot.get_dof_index(
+            "dummy_base_prismatic_x_joint"
+        )
+        self._base_y_idx = self._robot.get_dof_index(
+            "dummy_base_prismatic_y_joint"
+        )
+        self._base_yaw_idx = self._robot.get_dof_index(
+            "dummy_base_revolute_z_joint"
+        )
+
+        # Discover arm joint indices
         self._arm_joint_indices = []
         for name in FRANKA_ARM_JOINT_NAMES:
             idx = self._robot.get_dof_index(name)
@@ -288,15 +285,6 @@ class RidgebackFrankaPickPlace:
             idx = self._robot.get_dof_index(name)
             self._gripper_joint_indices.append(idx)
 
-        # Create the holonomic base controller
-        self._base_controller = HolonomicController(
-            name="ridgeback_base_controller",
-            wheel_radius=RIDGEBACK_WHEEL_RADIUS,
-            wheel_positions=RIDGEBACK_WHEEL_POSITIONS,
-            wheel_orientations=RIDGEBACK_WHEEL_ORIENTATIONS,
-            mecanum_angles=RIDGEBACK_MECANUM_ANGLES,
-        )
-
         # Move arm to home position and open gripper
         self._set_arm_positions(FRANKA_HOME_POSITIONS)
         self._set_gripper(GRIPPER_OPEN)
@@ -306,10 +294,11 @@ class RidgebackFrankaPickPlace:
 
         print("[Reset] Robot initialised. Starting pick-and-place task.")
         print(
-            f"[Reset] Wheel joints: {self._wheel_joint_indices}, "
-            f"Arm joints: {self._arm_joint_indices}, "
-            f"Gripper joints: {self._gripper_joint_indices}"
+            f"[Reset] Base joints: x={self._base_x_idx}, "
+            f"y={self._base_y_idx}, yaw={self._base_yaw_idx}"
         )
+        print(f"[Reset] Arm joints: {self._arm_joint_indices}")
+        print(f"[Reset] Gripper joints: {self._gripper_joint_indices}")
 
     def forward(self):
         """Execute one step of the pick-and-place state machine."""
@@ -319,10 +308,9 @@ class RidgebackFrankaPickPlace:
             return
 
         if self._state == self.NAVIGATE_TO_PICK:
-            self._navigate_base(PICK_BASE_POSITION, next_state=self.PRE_GRASP)
+            self._navigate_base(PICK_BASE_XY, next_state=self.PRE_GRASP)
 
         elif self._state == self.PRE_GRASP:
-            self._stop_base()
             # Move arm to pre-grasp pose above the cube
             pre_grasp_positions = np.array(
                 [0.0, -0.4, 0.0, -1.8, 0.0, 1.4, 0.785]
@@ -356,10 +344,9 @@ class RidgebackFrankaPickPlace:
             self._transition(self.NAVIGATE_TO_PLACE)
 
         elif self._state == self.NAVIGATE_TO_PLACE:
-            self._navigate_base(PLACE_BASE_POSITION, next_state=self.PRE_PLACE)
+            self._navigate_base(PLACE_BASE_XY, next_state=self.PRE_PLACE)
 
         elif self._state == self.PRE_PLACE:
-            self._stop_base()
             # Move arm to pre-place pose
             pre_place_positions = np.array(
                 [0.0, -0.4, 0.0, -1.8, 0.0, 1.4, 0.785]
@@ -392,7 +379,7 @@ class RidgebackFrankaPickPlace:
         """Return True when the task is complete."""
         return self._state == self.DONE and self._wait_steps <= 0
 
-    # ── Private helpers ────────────────────────────────────────────────────
+    # -- Private helpers ----------------------------------------------------
 
     def _transition(self, new_state):
         """Transition to a new state with logging."""
@@ -402,55 +389,46 @@ class RidgebackFrankaPickPlace:
         )
         self._state = new_state
 
+    def _get_base_xy(self):
+        """Read current base X, Y position from the prismatic joint values."""
+        joint_positions = self._robot.get_joint_positions()
+        base_x = joint_positions[self._base_x_idx]
+        base_y = joint_positions[self._base_y_idx]
+        return np.array([base_x, base_y])
+
     def _navigate_base(self, target_xy, next_state):
         """
-        Drive the Ridgeback base toward target_xy (2D).
+        Move the Ridgeback base toward target_xy (2D) by incrementally
+        setting the dummy prismatic joint positions each step.
         Transitions to next_state once within tolerance.
         """
-        robot_position, _ = self._robot.get_world_pose()
-        current_xy = robot_position[:2]
+        current_xy = self._get_base_xy()
         error = target_xy - current_xy
         distance = np.linalg.norm(error)
 
         if distance < POSITION_TOLERANCE:
-            self._stop_base()
             self._transition(next_state)
             return
 
-        # Compute velocity direction
+        # Move a small step toward the target for smooth motion
         direction = error / distance
-        vx = direction[0] * BASE_LINEAR_SPEED
-        vy = direction[1] * BASE_LINEAR_SPEED
-        command = [vx, vy, BASE_ANGULAR_SPEED]
+        step = direction * min(BASE_MOVE_STEP_SIZE, distance)
+        new_xy = current_xy + step
 
-        # Get wheel velocity commands from the holonomic controller
-        actions = self._base_controller.forward(command)
+        # Build a full joint position array, preserving all current positions
+        full_positions = self._robot.get_joint_positions().copy()
+        full_positions[self._base_x_idx] = new_xy[0]
+        full_positions[self._base_y_idx] = new_xy[1]
 
-        # Apply wheel velocities
-        full_velocities = np.zeros(self._robot.num_dof)
-        wheel_velocities = actions.joint_velocities
-        for i, idx in enumerate(self._wheel_joint_indices):
-            if i < len(wheel_velocities):
-                full_velocities[idx] = wheel_velocities[i]
-
-        action = ArticulationAction(joint_velocities=full_velocities)
-        self._robot.apply_action(action)
-
-    def _stop_base(self):
-        """Stop all wheel joints."""
-        full_velocities = np.zeros(self._robot.num_dof)
-        for idx in self._wheel_joint_indices:
-            full_velocities[idx] = 0.0
-        action = ArticulationAction(joint_velocities=full_velocities)
+        action = ArticulationAction(joint_positions=full_positions)
         self._robot.apply_action(action)
 
     def _set_arm_positions(self, joint_positions):
         """Command the Franka arm joints to target positions."""
-        full_positions = np.zeros(self._robot.num_dof)
-        # Read current positions so we don't disturb other joints
-        current_positions = self._robot.get_joint_positions()
-        if current_positions is not None:
-            full_positions[:] = current_positions
+        full_positions = self._robot.get_joint_positions()
+        if full_positions is None:
+            return
+        full_positions = full_positions.copy()
 
         for i, idx in enumerate(self._arm_joint_indices):
             if i < len(joint_positions):
@@ -461,10 +439,10 @@ class RidgebackFrankaPickPlace:
 
     def _set_gripper(self, width):
         """Command the gripper fingers to a target width."""
-        full_positions = np.zeros(self._robot.num_dof)
-        current_positions = self._robot.get_joint_positions()
-        if current_positions is not None:
-            full_positions[:] = current_positions
+        full_positions = self._robot.get_joint_positions()
+        if full_positions is None:
+            return
+        full_positions = full_positions.copy()
 
         for idx in self._gripper_joint_indices:
             full_positions[idx] = width
