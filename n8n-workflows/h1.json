@@ -1,9 +1,9 @@
 {
-  "name": "spot",
+  "name": "h1",
   "nodes": [
     {
       "parameters": {
-        "topic": "spot/hello",
+        "topic": "h1/hello",
         "sendInputData": false,
         "message": "={ \"agent\":\"{{ $json.agent }}\",\"command\":\"{{ $json.command }}\"\"}",
         "options": {}
@@ -15,7 +15,7 @@
         -272
       ],
       "id": "2b38f178-8a5e-499d-915b-670ec93b2a67",
-      "name": "spot_topic",
+      "name": "h1_topic",
       "credentials": {
         "mqtt": {
           "id": "<YOUR_MQTT_CREDENTIAL_ID>",
@@ -94,7 +94,7 @@
         "promptType": "define",
         "text": "=Perform below command\n{{ $json.command }}\n{{ $json.content }}\nConfirm success and failure ",
         "options": {
-          "systemMessage": "You are the Spot Agent controlling the H1 Unitree humanoid robot. You can use publish tools to send messages to MQTT topics. Invoke tools once only.\n\nIMPORTANT RULES:\n1. When the camera analysis detects an object on the floor, you MUST:\n   a. First, publish your status as \"stopped\" to the h1_status_topic tool with message: \"H1 robot stopped - object detected on floor\"\n   b. Then, publish to the command_center_topic tool with message: \"H1 stopped. Object found on the floor. Requesting manipulator pickup.\"\n2. When no object is detected, continue normal operation and do NOT publish a stopped status.\n3. The H1_2 robot is independent and should NOT be affected by your status changes.\n4. After the manipulator (Franka arm) completes its task, you will receive a resume command. Publish status \"walking\" to h1_status_topic.\n\nYour input to the tool call would be a JSON payload:\n{\n  \"message\": \"Hello.\",\n  \"agent\": \"spot agent\",\n  \"status\": \"stopped\"\n}"
+          "systemMessage": "You are the H1 Agent controlling the H1 Unitree humanoid robot. You can use publish tools to send messages to MQTT topics. Invoke tools once only.\n\nIMPORTANT RULES:\n1. When the camera analysis detects an object on the floor, you MUST:\n   a. First, publish your status as \"stopped\" to the h1_status_topic tool with message: \"H1 robot stopped - object detected on floor\"\n   b. Then, publish to the command_center_topic tool with message: \"H1 stopped. Object found on the floor. Requesting manipulator pickup.\"\n2. When no object is detected, continue normal operation and do NOT publish a stopped status.\n3. The H1_2 robot is independent and should NOT be affected by your status changes.\n4. After the manipulator (Franka arm) completes its task, you will receive a resume command. Publish status \"walking\" to h1_status_topic.\n\nYour input to the tool call would be a JSON payload:\n{\n  \"message\": \"Hello.\",\n  \"agent\": \"h1 agent\",\n  \"status\": \"stopped\"\n}"
         }
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
@@ -104,7 +104,7 @@
         -528
       ],
       "id": "e53affe2-9469-4fd8-9021-1cb497b5a92e",
-      "name": "Spot Agent"
+      "name": "H1 Agent"
     },
     {
       "parameters": {},
@@ -126,7 +126,7 @@
           "mode": "list",
           "cachedResultName": "qwen3-vl:8b"
         },
-        "text": "This image is captured by the H1 Unitree humanoid robot (Spot agent) during its traverse of the warehouse. Analyze this image for any objects present on the warehouse floor that may pose an operational concern.\n\nIf an object is found on the floor, return the string: \"H1 robot stopped. Object found on the floor. Send pickup command to manipulator.\"\nIf no object is found, return an empty string.",
+        "text": "This image is captured by the H1 Unitree humanoid robot during its traverse of the warehouse. Analyze this image for any objects present on the warehouse floor that may pose an operational concern.\n\nIf an object is found on the floor, return the string: \"H1 robot stopped. Object found on the floor. Send pickup command to manipulator.\"\nIf no object is found, return an empty string.",
         "options": {}
       },
       "type": "@n8n/n8n-nodes-langchain.ollama",
@@ -161,7 +161,7 @@
     },
     {
       "parameters": {
-        "topics": "spot/camera/image_stream",
+        "topics": "h1/camera/image_stream",
         "options": {}
       },
       "type": "n8n-nodes-base.mqttTrigger",
@@ -199,18 +199,18 @@
       "ai_languageModel": [
         [
           {
-            "node": "Spot Agent",
-            "type": "ai_languageModel",
+                        "node": "H1 Agent",
+                        "type": "ai_languageModel",
             "index": 0
           }
         ]
       ]
     },
-    "spot_topic": {
-      "ai_tool": [
-        [
-          {
-            "node": "Spot Agent",
+        "h1_topic": {
+          "ai_tool": [
+            [
+              {
+                "node": "H1 Agent",
             "type": "ai_tool",
             "index": 0
           }
@@ -221,26 +221,26 @@
       "ai_tool": [
         [
           {
-            "node": "Spot Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "h1_status_topic": {
+                "node": "H1 Agent",
+                "type": "ai_tool",
+                "index": 0
+              }
+            ]
+          ]
+        },
+        "h1_status_topic": {
       "ai_tool": [
         [
           {
-            "node": "Spot Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Spot Agent": {
-      "main": [
+                "node": "H1 Agent",
+                "type": "ai_tool",
+                "index": 0
+              }
+            ]
+          ]
+        },
+        "H1 Agent": {
+          "main": [
         [
           {
             "node": "No Operation, do nothing",
@@ -254,8 +254,8 @@
       "main": [
         [
           {
-            "node": "Spot Agent",
-            "type": "main",
+                        "node": "H1 Agent",
+                        "type": "main",
             "index": 0
           }
         ]
@@ -287,8 +287,8 @@
       "main": [
         [
           {
-            "node": "Spot Agent",
-            "type": "main",
+                        "node": "H1 Agent",
+                        "type": "main",
             "index": 0
           }
         ]
