@@ -16,7 +16,7 @@
       "name": "Ollama Chat Model2",
       "credentials": {
         "ollamaApi": {
-          "id": "<YOUR_OLLAMA_CREDENTIAL_ID>",
+          "id": "d4O72qPgokitemdi",
           "name": "Ollama account"
         }
       }
@@ -39,7 +39,7 @@
       "name": "comman_center_topic1",
       "credentials": {
         "mqtt": {
-          "id": "<YOUR_MQTT_CREDENTIAL_ID>",
+          "id": "EA4SLvkvDJIS1F18",
           "name": "MQTT account"
         }
       }
@@ -62,7 +62,7 @@
       "name": "manipulator_topic",
       "credentials": {
         "mqtt": {
-          "id": "<YOUR_MQTT_CREDENTIAL_ID>",
+          "id": "EA4SLvkvDJIS1F18",
           "name": "MQTT account"
         }
       }
@@ -85,7 +85,7 @@
       "name": "franka_status_topic",
       "credentials": {
         "mqtt": {
-          "id": "<YOUR_MQTT_CREDENTIAL_ID>",
+          "id": "EA4SLvkvDJIS1F18",
           "name": "MQTT account"
         }
       }

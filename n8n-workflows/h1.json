@@ -18,7 +18,7 @@
       "name": "h1_topic",
       "credentials": {
         "mqtt": {
-          "id": "<YOUR_MQTT_CREDENTIAL_ID>",
+          "id": "EA4SLvkvDJIS1F18",
           "name": "MQTT account"
         }
       }
@@ -41,7 +41,7 @@
       "name": "comman_center_topic",
       "credentials": {
         "mqtt": {
-          "id": "<YOUR_MQTT_CREDENTIAL_ID>",
+          "id": "EA4SLvkvDJIS1F18",
           "name": "MQTT account"
         }
       }
@@ -64,7 +64,7 @@
       "name": "h1_status_topic",
       "credentials": {
         "mqtt": {
-          "id": "<YOUR_MQTT_CREDENTIAL_ID>",
+          "id": "EA4SLvkvDJIS1F18",
           "name": "MQTT account"
         }
       }
@@ -84,7 +84,7 @@
       "name": "Ollama Chat Model1",
       "credentials": {
         "ollamaApi": {
-          "id": "<YOUR_OLLAMA_CREDENTIAL_ID>",
+          "id": "d4O72qPgokitemdi",
           "name": "Ollama account"
         }
       }
@@ -139,7 +139,7 @@
       "name": "Analyze image",
       "credentials": {
         "ollamaApi": {
-          "id": "<YOUR_OLLAMA_CREDENTIAL_ID>",
+          "id": "d4O72qPgokitemdi",
           "name": "Ollama account"
         }
       }
@@ -174,7 +174,7 @@
       "name": "camera_feed",
       "credentials": {
         "mqtt": {
-          "id": "<YOUR_MQTT_CREDENTIAL_ID>",
+          "id": "EA4SLvkvDJIS1F18",
           "name": "MQTT account"
         }
       }

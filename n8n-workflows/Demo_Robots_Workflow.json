@@ -30,8 +30,8 @@
       "name": "Ollama Chat Model",
       "credentials": {
         "ollamaApi": {
-          "id": "<YOUR_OLLAMA_CREDENTIAL_ID>",
-          "name": "Ollama account"
+                    "id": "d4O72qPgokitemdi",
+                    "name": "Ollama account"
         }
       }
     },
@@ -126,7 +126,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "={{ $json.chatInput }} {{ $json.message }}",
+        "text": "={{ $json.chatInput || (typeof $json.message === 'object' ? JSON.stringify($json.message) : $json.message) || JSON.stringify($json) }}",
         "hasOutputParser": true,
         "messages": {
           "messageValues": [
@@ -161,7 +161,7 @@
       "name": "comman_center_listener",
       "credentials": {
         "mqtt": {
-          "id": "<YOUR_MQTT_CREDENTIAL_ID>",
+          "id": "EA4SLvkvDJIS1F18",
           "name": "MQTT account"
         }
       }
@@ -181,7 +181,7 @@
       "name": "h1_status_listener",
       "credentials": {
         "mqtt": {
-          "id": "<YOUR_MQTT_CREDENTIAL_ID>",
+          "id": "EA4SLvkvDJIS1F18",
           "name": "MQTT account"
         }
       }
@@ -192,21 +192,30 @@
           "options": {
             "caseSensitive": false,
             "leftValue": "",
-            "typeValidation": "strict",
+            "typeValidation": "loose",
             "version": 2
           },
           "conditions": [
             {
-              "leftValue": "={{ $json.message }}",
+              "leftValue": "={{ $json.message?.status || $json.status || '' }}",
+              "rightValue": "stopped",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "id": "a1b2c3d4-check-h1-stopped"
+            },
+            {
+              "leftValue": "={{ JSON.stringify($json) }}",
               "rightValue": "stopped",
               "operator": {
                 "type": "string",
                 "operation": "contains"
               },
-              "id": "a1b2c3d4-check-h1-stopped"
+              "id": "a1b2c3d4-check-h1-fallback"
             }
           ],
-          "combinator": "and"
+          "combinator": "or"
         },
         "options": {}
       },
@@ -236,7 +245,7 @@
       "name": "Send H1_2 Continue Walking",
       "credentials": {
         "mqtt": {
-          "id": "<YOUR_MQTT_CREDENTIAL_ID>",
+          "id": "EA4SLvkvDJIS1F18",
           "name": "MQTT account"
         }
       }
