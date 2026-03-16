@@ -1,5 +1,4 @@
 import argparse
-import sys
 
 # ---------------------------------------------------------------------------
 # Pre-parse --livestream before SimulationApp is created, because the launch
