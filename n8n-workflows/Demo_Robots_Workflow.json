@@ -230,6 +230,19 @@
     },
     {
       "parameters": {
+        "jsCode": "// Deterministic dispatch: when H1 stops, always dispatch manipulator + tell H1 to stay.\n// This bypasses the LLM (which outputs reasoning text that breaks the Structured Output Parser).\nreturn [{\n  json: {\n    output: {\n      assign_agents: [\n        { agent: 'manipulator', command: 'pick_and_place' },\n        { agent: 'h1', command: 'stay' }\n      ]\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        -440
+      ],
+      "id": "a1b2c3d4-code-franka-dispatch",
+      "name": "Generate Franka Dispatch"
+    },
+    {
+      "parameters": {
         "topic": "h1_2/control",
         "sendInputData": false,
         "message": "={\"agent\":\"h1_2\",\"command\":\"continue_walking\"}",
@@ -428,12 +441,23 @@
       "main": [
         [
           {
-            "node": "Robot Command Center",
+            "node": "Generate Franka Dispatch",
             "type": "main",
             "index": 0
           }
         ],
         []
+      ]
+    },
+    "Generate Franka Dispatch": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Merge": {
