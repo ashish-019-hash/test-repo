@@ -27,7 +27,17 @@ _app_config = {
     "width": 1280,
     "height": 720,
 }
-simulation_app = SimulationApp(_app_config)
+if _LIVESTREAM_ENABLED:
+    # These keys are required so the renderer stays active in headless mode
+    # and the streaming extension has something to capture.
+    _app_config.update({
+        "window_width": 1920,
+        "window_height": 1080,
+        "hide_ui": False,
+        "renderer": "RaytracedLighting",
+        "display_options": 3286,
+    })
+simulation_app = SimulationApp(launch_config=_app_config)
 
 import carb
 import math
@@ -58,24 +68,20 @@ import omni.graph.core as og
 
 # ---------------------------------------------------------------------------
 # Enable livestream extensions (must happen after SimulationApp + omni imports)
+# Reference: isaac-sim/IsaacSim standalone_examples/api/isaacsim.simulation_app/livestream.py
 # ---------------------------------------------------------------------------
 if _LIVESTREAM_ENABLED:
-    _settings = carb.settings.get_settings()
-    # Disable the mouse cursor drawn on the viewport (streamed separately)
-    _settings.set("/app/window/drawMouse", False)
-    # Configure WebSocket livestream parameters
-    _settings.set("/app/livestream/proto", "ws")
-    _settings.set("/app/livestream/websocket/framerate_limit", 120)
-    _settings.set("/ngx/enabled", False)
+    from isaacsim.core.utils.extensions import enable_extension
 
-    _ext_manager = omni.kit.app.get_app().get_extension_manager()
+    simulation_app.set_setting("/app/window/drawMouse", True)
+
     if _pre_args.livestream == 1:
-        _ext_manager.set_extension_enabled_immediate("omni.kit.livestream.native", True)
+        enable_extension("omni.kit.livestream.native")
         print("[Livestream] Native streaming enabled.")
         print("[Livestream] Use the Omniverse Streaming Client to connect.")
     elif _pre_args.livestream == 2:
-        _ext_manager.set_extension_enabled_immediate("omni.kit.livestream.websocket", True)
-        print("[Livestream] WebSocket streaming enabled.")
+        enable_extension("omni.services.livestream.nvcf")
+        print("[Livestream] WebSocket/WebRTC streaming enabled.")
         print("[Livestream] Use the Isaac Sim WebRTC Streaming Client to connect (default server: 127.0.0.1).")
 
     # Allow a moment for the extension to initialise before continuing
