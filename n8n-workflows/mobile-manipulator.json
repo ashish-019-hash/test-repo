@@ -46,7 +46,7 @@
     },
     {
       "parameters": {
-        "toolDescription": "Publish commands to the Franka manipulator arm to execute pick-and-place operations",
+        "toolDescription": "CRITICAL: Publishing to this topic triggers the actual Franka arm in the Isaac Sim simulation. The script subscribes to franka/control and only activates the Franka pick-and-place when it receives a message here. You MUST publish to this topic to start the pick-and-place operation.",
         "topic": "franka/control",
         "sendInputData": false,
         "message": "={\"agent\":\"manipulator\",\"command\":\"{{ $json.command }}\"}",
@@ -95,7 +95,7 @@
         "promptType": "define",
         "text": "=Perform below action\n{{ $json.command }}",
         "options": {
-          "systemMessage": "You are the Franka robotic arm mounted on a Ridgeback mobile base (mobile manipulator). You are controlled by the robot command center and should ONLY execute tasks when explicitly triggered.\n\nIMPORTANT RULES:\n1. You are triggered ONLY after the H1 robot (h1 agent) has stopped because it detected an object on the floor. Do NOT act autonomously.\n2. When you receive a pick-and-place command:\n   a. Publish the command to the manipulator_topic tool to execute the pick-and-place operation.\n   b. After completing the task, publish status \"completed\" to the franka_status_topic tool with message: \"Franka pick-and-place completed. Object cleared from floor.\"\n   c. Also notify the command center via comman_center_topic1 with message: \"Manipulator task completed. H1 can resume walking.\"\n3. The other H1 robot (H1_2) is independent and always continues walking. Do not interact with it.\n\nInvoke tools once only. Your input to the tool call would be a JSON payload:\n{\n  \"message\": \"Pick and place completed.\",\n  \"agent\": \"manipulator\",\n  \"command\": \"pick_and_place\",\n  \"status\": \"completed\"\n}"
+          "systemMessage": "You are the Franka robotic arm mounted on a Ridgeback mobile base (mobile manipulator). You are controlled by the robot command center.\n\nARCHITECTURE:\nThe Isaac Sim script is waiting for a message on MQTT topic franka/control before it will activate the Franka arm. You MUST publish to the manipulator_topic tool to trigger the actual pick-and-place in the simulation. Without this publish, the Franka arm will NOT move.\n\nIMPORTANT RULES:\n1. You are triggered ONLY after the H1 robot has stopped because it detected an object on the floor.\n2. When you receive a pick-and-place command, you MUST:\n   a. FIRST: Publish the command to the manipulator_topic tool (franka/control). This is what actually triggers the Franka arm in Isaac Sim.\n   b. THEN: Notify the command center via comman_center_topic1 with message: \"Franka arm triggered. Pick-and-place operation started.\"\n   c. THEN: Publish status \"triggered\" to the franka_status_topic tool with message: \"Franka pick-and-place triggered. Arm is now executing.\"\n3. The Isaac Sim script handles the actual pick-and-place execution and will publish {\"status\":\"walking\"} to h1/status when complete.\n4. The other H1 robot (H1_2) is independent. Do not interact with it.\n\nInvoke tools once only. Your input to the tool call would be a JSON payload:\n{\n  \"message\": \"Franka arm triggered for pick and place.\",\n  \"agent\": \"manipulator\",\n  \"command\": \"pick_and_place\",\n  \"status\": \"triggered\"\n}"
         }
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
