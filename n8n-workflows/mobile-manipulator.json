@@ -108,6 +108,28 @@
       "name": "Mobile Manipu- -lator Agent"
     },
     {
+      "parameters": {
+        "topic": "franka/control",
+        "sendInputData": false,
+        "message": "{\"agent\":\"manipulator\",\"command\":\"pick_and_place\",\"source\":\"mobile-manipulator-workflow\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mqtt",
+      "typeVersion": 1,
+      "position": [
+        832,
+        208
+      ],
+      "id": "a1b2c3d4-mqtt-franka-trigger-direct",
+      "name": "Trigger Franka Arm",
+      "credentials": {
+        "mqtt": {
+          "id": "EA4SLvkvDJIS1F18",
+          "name": "MQTT account"
+        }
+      }
+    },
+    {
       "parameters": {},
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
@@ -179,6 +201,17 @@
       ]
     },
     "Mobile Manipu- -lator Agent": {
+      "main": [
+        [
+          {
+            "node": "Trigger Franka Arm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger Franka Arm": {
       "main": [
         [
           {
