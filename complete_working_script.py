@@ -203,6 +203,7 @@ MQTT_H1_STATUS_TOPIC = "h1/status"  # n8n main workflow listens for H1 stopped/w
 MQTT_COMMAND_CENTER_TOPIC = "command_center/topic"  # n8n command center listener
 MQTT_FRANKA_CONTROL_TOPIC = "franka/control"  # n8n command center sends Franka trigger here
 MQTT_CAMERA_PUBLISH_RATE_HZ = 2  # publish camera images via MQTT at ~2 Hz
+ROS2_FRANKA_TRIGGER_TOPIC = "/franka/trigger"  # ROS2 topic from MQTT-ROS2 bridge for Franka trigger
 
 
 # ---- Stabilized camera helper functions (from H1 robot script) ----
@@ -926,6 +927,11 @@ class H1GR00TRunner(object):
         self._mqtt_h1_status_published = False
         self._setup_mqtt()
 
+        # --- ROS2 subscriber for Franka trigger (from MQTT-ROS2 bridge) ---
+        self._ros2_franka_node = None
+        self._ros2_franka_thread = None
+        self._setup_ros2_franka_subscriber()
+
     def _setup_camera(self):
         """Set up stabilized eye-level camera that tracks H1's head link."""
         print(f"[Camera] Setting up stabilized eye camera at: {self._camera_prim}")
@@ -1069,6 +1075,67 @@ class H1GR00TRunner(object):
             print(f"[MQTT] Notified command center: {message}")
         except Exception as e:
             print(f"[MQTT] Error publishing H1 status: {e}")
+
+    def _setup_ros2_franka_subscriber(self):
+        """Subscribe to /franka/trigger ROS2 topic (published by MQTT-ROS2 bridge).
+
+        The MQTT-ROS2 bridge receives franka/control from n8n and forwards it
+        to /franka/trigger as a ROS2 String message. This subscriber picks it
+        up and sets the _franka_triggered_by_mqtt flag so the physics loop
+        activates the Franka arm.
+        """
+        try:
+            import rclpy
+            from rclpy.node import Node as RclpyNode
+            from std_msgs.msg import String as RosString
+
+            # Initialize rclpy if not already done
+            if not rclpy.ok():
+                rclpy.init()
+
+            class _FrankaTriggerListener(RclpyNode):
+                def __init__(self, runner):
+                    super().__init__('isaac_sim_franka_trigger_listener')
+                    self._runner = runner
+                    self.create_subscription(
+                        RosString,
+                        ROS2_FRANKA_TRIGGER_TOPIC,
+                        self._on_franka_trigger,
+                        10,
+                    )
+                    self.get_logger().info(
+                        f"Subscribed to ROS2 topic: {ROS2_FRANKA_TRIGGER_TOPIC}"
+                    )
+
+                def _on_franka_trigger(self, msg):
+                    self.get_logger().info(f"Received Franka trigger via ROS2: {msg.data}")
+                    if not self._runner._pick_place_active and not self._runner._pick_place_done:
+                        self._runner._franka_triggered_by_mqtt = True
+                        if self._runner._waiting_for_franka_trigger:
+                            print("[ROS2] Franka arm will be activated on next physics step.")
+                        else:
+                            print("[ROS2] Franka trigger buffered (H1 still settling). Will activate once settled.")
+                    else:
+                        print("[ROS2] Ignoring Franka trigger (pick-place already active or done).")
+
+            self._ros2_franka_node = _FrankaTriggerListener(self)
+
+            def _spin_thread():
+                try:
+                    rclpy.spin(self._ros2_franka_node)
+                except Exception:
+                    pass
+
+            self._ros2_franka_thread = threading.Thread(target=_spin_thread, daemon=True)
+            self._ros2_franka_thread.start()
+            print(f"[ROS2] Franka trigger subscriber active on {ROS2_FRANKA_TRIGGER_TOPIC}")
+            print(f"[ROS2] This receives triggers from the MQTT-ROS2 bridge (franka/control -> /franka/trigger)")
+
+        except ImportError:
+            print("[ROS2] rclpy not available. Franka trigger will rely on direct MQTT only.")
+        except Exception as e:
+            print(f"[ROS2] Could not set up Franka trigger subscriber: {e}")
+            print("[ROS2] Franka trigger will rely on direct MQTT only.")
 
     def _setup_static_franka_opposite(self, stage, cube_offset, assets_root_path):
         """Add a static (non-functional) Ridgeback Franka on the opposite side of the active one.
@@ -1626,6 +1693,14 @@ class H1GR00TRunner(object):
                 self._mqtt_client.loop_stop()
                 self._mqtt_client.disconnect()
                 print("[MQTT] Disconnected from broker.")
+            except Exception:
+                pass
+
+        # Clean up ROS2 Franka trigger subscriber
+        if self._ros2_franka_node is not None:
+            try:
+                self._ros2_franka_node.destroy_node()
+                print("[ROS2] Franka trigger subscriber shut down.")
             except Exception:
                 pass
 
