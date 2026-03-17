@@ -230,6 +230,48 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.message?.status || $json.status || '' }}",
+              "rightValue": "stopped",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "id": "b2c3d4e5-check-cc-stopped"
+            },
+            {
+              "leftValue": "={{ JSON.stringify($json) }}",
+              "rightValue": "stopped",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              },
+              "id": "b2c3d4e5-check-cc-fallback"
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -560,
+        -240
+      ],
+      "id": "b2c3d4e5-f6a7-8901-bcde-cc_stopped_check",
+      "name": "Check CC Stopped"
+    },
+    {
+      "parameters": {
         "jsCode": "// Deterministic dispatch: when H1 stops, always dispatch manipulator + tell H1 to stay.\n// This bypasses the LLM (which outputs reasoning text that breaks the Structured Output Parser).\nreturn [{\n  json: {\n    output: {\n      assign_agents: [\n        { agent: 'manipulator', command: 'pick_and_place' },\n        { agent: 'h1', command: 'stay' }\n      ]\n    }\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
@@ -417,6 +459,24 @@
     },
     "comman_center_listener": {
       "main": [
+        [
+          {
+            "node": "Check CC Stopped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check CC Stopped": {
+      "main": [
+        [
+          {
+            "node": "Generate Franka Dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Robot Command Center",
