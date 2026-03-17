@@ -932,6 +932,28 @@ class H1GR00TRunner(object):
         self._ros2_franka_thread = None
         self._setup_ros2_franka_subscriber()
 
+        # --- Startup diagnostics: show which trigger paths are active ---
+        print("")
+        print("=" * 50)
+        print("  FRANKA TRIGGER PATHS STATUS:")
+        mqtt_ok = self._mqtt_client is not None
+        ros2_ok = self._ros2_franka_node is not None
+        if mqtt_ok:
+            print(f"  [OK] Direct MQTT: subscribed to '{MQTT_FRANKA_CONTROL_TOPIC}'")
+        else:
+            print(f"  [!!] Direct MQTT: NOT available (paho-mqtt not installed?)")
+        if ros2_ok:
+            print(f"  [OK] ROS2 bridge: subscribed to '{ROS2_FRANKA_TRIGGER_TOPIC}'")
+        else:
+            print(f"  [!!] ROS2 bridge: NOT available (rclpy not available?)")
+        if not mqtt_ok and not ros2_ok:
+            print("  [ERROR] NO trigger path available! Franka will never activate.")
+            print("  Fix: Install paho-mqtt in Isaac Sim Python environment:")
+            print("    ~/.local/share/ov/pkg/isaac-sim-*/python.sh -m pip install paho-mqtt")
+            print("  Or ensure rclpy is available and the MQTT-ROS2 bridge is running.")
+        print("=" * 50)
+        print("")
+
     def _setup_camera(self):
         """Set up stabilized eye-level camera that tracks H1's head link."""
         print(f"[Camera] Setting up stabilized eye camera at: {self._camera_prim}")
@@ -1565,15 +1587,18 @@ class H1GR00TRunner(object):
             if h1_pos is not None:
                 self._robot_last_position = h1_pos.copy()
 
-        # Wait for MQTT trigger from n8n command center before starting Franka pick-and-place
-        if self._waiting_for_franka_trigger and not self._pick_place_active:
-            if self._franka_triggered_by_mqtt:
-                self._waiting_for_franka_trigger = False
-                self._franka_triggered_by_mqtt = False
-                self._pick_place_active = True
-                self._ridgeback_franka.reset()
-                print(f"[H1] Command center triggered Franka! Starting Ridgeback Franka pick-and-place...")
-            elif self._physics_step_count % 200 == 0:
+        # Check for MQTT/ROS2 trigger from n8n command center — activate Franka IMMEDIATELY
+        # regardless of whether H1 has settled. This allows manual workflow triggers to work.
+        if self._franka_triggered_by_mqtt and not self._pick_place_active and not self._pick_place_done:
+            self._franka_triggered_by_mqtt = False
+            self._waiting_for_franka_trigger = False
+            self._robot_stopping = False
+            self._robot_reached_object = True  # Stop H1 movement
+            self._pick_place_active = True
+            self._ridgeback_franka.reset()
+            print(f"[H1] Command center triggered Franka! Starting Ridgeback Franka pick-and-place...")
+        elif self._waiting_for_franka_trigger and not self._pick_place_active:
+            if self._physics_step_count % 200 == 0:
                 print(f"[H1] Waiting for command center MQTT trigger on {MQTT_FRANKA_CONTROL_TOPIC}...")
 
         # Movement control: walk forward with yaw steering, or stop
