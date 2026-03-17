@@ -981,11 +981,14 @@ class H1GR00TRunner(object):
 
             if topic == MQTT_FRANKA_CONTROL_TOPIC:
                 print(f"[MQTT] Received Franka trigger from command center: {payload}")
-                if self._waiting_for_franka_trigger and not self._pick_place_active:
+                if not self._pick_place_active and not self._pick_place_done:
                     self._franka_triggered_by_mqtt = True
-                    print("[MQTT] Franka arm will be activated on next physics step.")
+                    if self._waiting_for_franka_trigger:
+                        print("[MQTT] Franka arm will be activated on next physics step.")
+                    else:
+                        print("[MQTT] Franka trigger buffered (H1 still settling). Will activate once settled.")
                 else:
-                    print("[MQTT] Ignoring Franka trigger (H1 not in waiting state or pick-place already active).")
+                    print("[MQTT] Ignoring Franka trigger (pick-place already active or done).")
 
         try:
             self._mqtt_client = paho_mqtt.Client(client_id="isaac_sim_h1", clean_session=True)
@@ -1459,13 +1462,6 @@ class H1GR00TRunner(object):
                 self._robot_settled_count = 0
                 self._robot_last_position = None
                 print(f"[H1] Reached object vicinity (distance={distance_to_object:.2f}m <= {ROBOT_STOP_DISTANCE}m). Stopping...")
-                # Publish H1 stopped status to MQTT for n8n command center
-                if not self._mqtt_h1_status_published:
-                    self._publish_h1_status_mqtt(
-                        "stopped",
-                        "H1 robot stopped - object detected on floor. Requesting manipulator pickup."
-                    )
-                    self._mqtt_h1_status_published = True
 
         # GR00T queries continue running in parallel for detection logging
         if not self._pick_place_active and not self._robot_stopping:
@@ -1482,9 +1478,20 @@ class H1GR00TRunner(object):
                 else:
                     self._robot_settled_count = 0
                 if self._robot_settled_count >= ROBOT_SETTLED_FRAMES:
-                    # H1 has physically stopped — now wait for MQTT trigger from command center
+                    # H1 has physically stopped — now publish status and wait for MQTT trigger
                     self._robot_stopping = False
                     self._waiting_for_franka_trigger = True
+                    # Publish H1 stopped status AFTER settling so the script is
+                    # ready to receive the franka/control trigger when n8n responds
+                    if not self._mqtt_h1_status_published:
+                        self._publish_h1_status_mqtt(
+                            "stopped",
+                            "H1 robot stopped - object detected on floor. Requesting manipulator pickup."
+                        )
+                        self._mqtt_h1_status_published = True
+                    # Also check if a trigger arrived early (before we were ready)
+                    if self._franka_triggered_by_mqtt:
+                        print("[H1] Franka trigger was already buffered from MQTT — activating now.")
                     print(f"[H1] H1 has stopped (settled for {ROBOT_SETTLED_FRAMES} frames). Waiting for command center to trigger Franka via MQTT ({MQTT_FRANKA_CONTROL_TOPIC})...")
                 elif self._physics_step_count % 100 == 0:
                     print(f"[H1] Waiting for H1 to stop... settled_count={self._robot_settled_count}/{ROBOT_SETTLED_FRAMES}, delta={pos_delta:.4f}")
