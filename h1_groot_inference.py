@@ -62,6 +62,17 @@ from pxr import UsdGeom, Gf, UsdPhysics, PhysxSchema, Usd
 
 import zmq
 import msgpack
+import json
+import base64
+import threading
+
+try:
+    import paho.mqtt.client as paho_mqtt
+    PAHO_MQTT_AVAILABLE = True
+except ImportError:
+    PAHO_MQTT_AVAILABLE = False
+    print("[WARNING] paho-mqtt not installed. MQTT integration disabled.")
+    print("[WARNING] Install with: pip install paho-mqtt")
 
 import omni.kit.app
 import omni.graph.core as og
@@ -183,6 +194,16 @@ CAMERA_PITCH = -25.0  # degrees (negative = look down)
 H1_EYE_LINK = "d435_rgb_module_link"  # H1's head camera link name
 ROS2_CAMERA_TOPIC = "/h1/camera/image_raw"
 ROS2_PUBLISH_RATE_HZ = 20  # publish camera images at ~20 Hz
+
+# --- MQTT configuration for n8n integration ---
+MQTT_BROKER_HOST = "localhost"
+MQTT_BROKER_PORT = 1883
+MQTT_CAMERA_TOPIC = "h1/camera/image_stream"  # n8n H1 sub-workflow listens on this
+MQTT_H1_STATUS_TOPIC = "h1/status"  # n8n main workflow listens for H1 stopped/walking
+MQTT_COMMAND_CENTER_TOPIC = "command_center/topic"  # n8n command center listener
+MQTT_FRANKA_CONTROL_TOPIC = "franka/control"  # n8n command center sends Franka trigger here
+MQTT_CAMERA_PUBLISH_RATE_HZ = 2  # publish camera images via MQTT at ~2 Hz
+ROS2_FRANKA_TRIGGER_TOPIC = "/franka/trigger"  # ROS2 topic from MQTT-ROS2 bridge for Franka trigger
 
 
 # ---- Stabilized camera helper functions (from H1 robot script) ----
@@ -791,6 +812,9 @@ class H1GR00TRunner(object):
         cube_offset=3.0,
         ik_method="damped-least-squares",
         ros2_camera_topic=ROS2_CAMERA_TOPIC,
+        mqtt_broker_host=MQTT_BROKER_HOST,
+        mqtt_broker_port=MQTT_BROKER_PORT,
+        mqtt_camera_topic=MQTT_CAMERA_TOPIC,
     ):
         self._world = World(
             stage_units_in_meters=1.0,
@@ -881,8 +905,8 @@ class H1GR00TRunner(object):
         self._smooth_camera_pos = None
         self._smooth_camera_yaw = None
 
-        self._waiting_for_franka_delay = False
-        self._franka_delay_start_time = 0.0
+        self._waiting_for_franka_trigger = False  # True when H1 settled, waiting for MQTT command
+        self._franka_triggered_by_mqtt = False  # True when command center sends franka/control
         self.needs_reset = False
         self.first_step = True
 
@@ -891,6 +915,44 @@ class H1GR00TRunner(object):
         self._ros2_camera_graph_path = "/World/ROS2CameraGraph"
         self._ros2_camera_graph_built = False
         print(f"[ROS2] Will publish camera images to: {self._ros2_camera_topic}")
+
+        # --- MQTT publisher/subscriber for n8n integration ---
+        self._mqtt_camera_topic = mqtt_camera_topic
+        self._mqtt_broker_host = mqtt_broker_host
+        self._mqtt_broker_port = mqtt_broker_port
+        self._mqtt_client = None
+        self._mqtt_connected = False
+        self._mqtt_last_publish_time = 0.0
+        self._mqtt_publish_interval = 1.0 / MQTT_CAMERA_PUBLISH_RATE_HZ
+        self._mqtt_h1_status_published = False
+        self._setup_mqtt()
+
+        # --- ROS2 subscriber for Franka trigger (from MQTT-ROS2 bridge) ---
+        self._ros2_franka_node = None
+        self._ros2_franka_thread = None
+        self._setup_ros2_franka_subscriber()
+
+        # --- Startup diagnostics: show which trigger paths are active ---
+        print("")
+        print("=" * 50)
+        print("  FRANKA TRIGGER PATHS STATUS:")
+        mqtt_ok = self._mqtt_client is not None
+        ros2_ok = self._ros2_franka_node is not None
+        if mqtt_ok:
+            print(f"  [OK] Direct MQTT: subscribed to '{MQTT_FRANKA_CONTROL_TOPIC}'")
+        else:
+            print(f"  [!!] Direct MQTT: NOT available (paho-mqtt not installed?)")
+        if ros2_ok:
+            print(f"  [OK] ROS2 bridge: subscribed to '{ROS2_FRANKA_TRIGGER_TOPIC}'")
+        else:
+            print(f"  [!!] ROS2 bridge: NOT available (rclpy not available?)")
+        if not mqtt_ok and not ros2_ok:
+            print("  [ERROR] NO trigger path available! Franka will never activate.")
+            print("  Fix: Install paho-mqtt in Isaac Sim Python environment:")
+            print("    ~/.local/share/ov/pkg/isaac-sim-*/python.sh -m pip install paho-mqtt")
+            print("  Or ensure rclpy is available and the MQTT-ROS2 bridge is running.")
+        print("=" * 50)
+        print("")
 
     def _setup_camera(self):
         """Set up stabilized eye-level camera that tracks H1's head link."""
@@ -915,6 +977,187 @@ class H1GR00TRunner(object):
             xf.AddTranslateOp().Set(Gf.Vec3d(0.02, 0.0, 0.0))
         except Exception as e:
             print(f"[Camera] Could not add head camera visualization: {e}")
+
+    def _setup_mqtt(self):
+        """Initialize MQTT client for publishing camera/status and subscribing to franka/control."""
+        if not PAHO_MQTT_AVAILABLE:
+            print("[MQTT] paho-mqtt not available. Skipping MQTT setup.")
+            return
+
+        def on_connect(client, userdata, flags, rc):
+            if rc == 0:
+                self._mqtt_connected = True
+                print(f"[MQTT] Connected to broker at {self._mqtt_broker_host}:{self._mqtt_broker_port}")
+                # Subscribe to franka/control so command center can trigger the Franka arm
+                client.subscribe(MQTT_FRANKA_CONTROL_TOPIC, qos=1)
+                print(f"[MQTT] Subscribed to {MQTT_FRANKA_CONTROL_TOPIC} (waiting for command center trigger)")
+            else:
+                print(f"[MQTT] Connection failed with code {rc}")
+
+        def on_disconnect(client, userdata, rc):
+            self._mqtt_connected = False
+            if rc != 0:
+                print(f"[MQTT] Unexpected disconnection (rc={rc}). Will attempt reconnect.")
+
+        def on_message(client, userdata, msg):
+            """Handle incoming MQTT messages (franka/control from n8n command center)."""
+            topic = msg.topic
+            try:
+                payload = json.loads(msg.payload.decode("utf-8"))
+            except Exception:
+                payload = msg.payload.decode("utf-8", errors="replace")
+
+            if topic == MQTT_FRANKA_CONTROL_TOPIC:
+                print(f"[MQTT] Received Franka trigger from command center: {payload}")
+                if not self._pick_place_active and not self._pick_place_done:
+                    self._franka_triggered_by_mqtt = True
+                    if self._waiting_for_franka_trigger:
+                        print("[MQTT] Franka arm will be activated on next physics step.")
+                    else:
+                        print("[MQTT] Franka trigger buffered (H1 still settling). Will activate once settled.")
+                else:
+                    print("[MQTT] Ignoring Franka trigger (pick-place already active or done).")
+
+        try:
+            self._mqtt_client = paho_mqtt.Client(client_id="isaac_sim_h1", clean_session=True)
+            self._mqtt_client.on_connect = on_connect
+            self._mqtt_client.on_disconnect = on_disconnect
+            self._mqtt_client.on_message = on_message
+            self._mqtt_client.connect_async(self._mqtt_broker_host, self._mqtt_broker_port, keepalive=60)
+            self._mqtt_client.loop_start()
+            print(f"[MQTT] Connecting to broker at {self._mqtt_broker_host}:{self._mqtt_broker_port}...")
+            print(f"[MQTT] Camera topic: {self._mqtt_camera_topic}")
+            print(f"[MQTT] H1 status topic: {MQTT_H1_STATUS_TOPIC}")
+            print(f"[MQTT] Franka control topic (subscribed): {MQTT_FRANKA_CONTROL_TOPIC}")
+        except Exception as e:
+            print(f"[MQTT] Failed to initialize MQTT client: {e}")
+            self._mqtt_client = None
+
+    def _publish_camera_mqtt(self):
+        """Publish camera image as base64-encoded JPEG to MQTT for n8n consumption."""
+        if not self._mqtt_connected or self._mqtt_client is None:
+            return
+
+        now = time.time()
+        if (now - self._mqtt_last_publish_time) < self._mqtt_publish_interval:
+            return
+
+        rgb = self._get_camera_image()
+        if rgb is None or not self._camera_ready:
+            return
+
+        try:
+            from PIL import Image
+            img = Image.fromarray(rgb)
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=70)
+            img_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+            payload = json.dumps({
+                "image": img_base64,
+                "timestamp": now,
+                "width": rgb.shape[1],
+                "height": rgb.shape[0],
+                "format": "jpeg_base64",
+                "agent": "h1",
+            })
+
+            self._mqtt_client.publish(self._mqtt_camera_topic, payload, qos=0)
+            self._mqtt_last_publish_time = now
+
+            if self._physics_step_count % 400 == 0:
+                print(f"[MQTT] Published camera frame to {self._mqtt_camera_topic} ({len(img_base64)} bytes)")
+        except ImportError:
+            if self._physics_step_count <= 1:
+                print("[MQTT] Pillow (PIL) not installed. Install with: pip install Pillow")
+        except Exception as e:
+            if self._physics_step_count % 1000 == 0:
+                print(f"[MQTT] Error publishing camera frame: {e}")
+
+    def _publish_h1_status_mqtt(self, status, message):
+        """Publish H1 robot status to MQTT for n8n command center integration."""
+        if not self._mqtt_connected or self._mqtt_client is None:
+            return
+
+        try:
+            payload = json.dumps({
+                "agent": "h1 agent",
+                "status": status,
+                "message": message,
+                "timestamp": time.time(),
+            })
+            self._mqtt_client.publish(MQTT_H1_STATUS_TOPIC, payload, qos=1)
+            print(f"[MQTT] Published H1 status: {status} -> {MQTT_H1_STATUS_TOPIC}")
+
+            center_payload = json.dumps({
+                "agent": "h1 agent",
+                "message": message,
+            })
+            self._mqtt_client.publish(MQTT_COMMAND_CENTER_TOPIC, center_payload, qos=1)
+            print(f"[MQTT] Notified command center: {message}")
+        except Exception as e:
+            print(f"[MQTT] Error publishing H1 status: {e}")
+
+    def _setup_ros2_franka_subscriber(self):
+        """Subscribe to /franka/trigger ROS2 topic (published by MQTT-ROS2 bridge).
+
+        The MQTT-ROS2 bridge receives franka/control from n8n and forwards it
+        to /franka/trigger as a ROS2 String message. This subscriber picks it
+        up and sets the _franka_triggered_by_mqtt flag so the physics loop
+        activates the Franka arm.
+        """
+        try:
+            import rclpy
+            from rclpy.node import Node as RclpyNode
+            from std_msgs.msg import String as RosString
+
+            # Initialize rclpy if not already done
+            if not rclpy.ok():
+                rclpy.init()
+
+            class _FrankaTriggerListener(RclpyNode):
+                def __init__(self, runner):
+                    super().__init__('isaac_sim_franka_trigger_listener')
+                    self._runner = runner
+                    self.create_subscription(
+                        RosString,
+                        ROS2_FRANKA_TRIGGER_TOPIC,
+                        self._on_franka_trigger,
+                        10,
+                    )
+                    self.get_logger().info(
+                        f"Subscribed to ROS2 topic: {ROS2_FRANKA_TRIGGER_TOPIC}"
+                    )
+
+                def _on_franka_trigger(self, msg):
+                    self.get_logger().info(f"Received Franka trigger via ROS2: {msg.data}")
+                    if not self._runner._pick_place_active and not self._runner._pick_place_done:
+                        self._runner._franka_triggered_by_mqtt = True
+                        if self._runner._waiting_for_franka_trigger:
+                            print("[ROS2] Franka arm will be activated on next physics step.")
+                        else:
+                            print("[ROS2] Franka trigger buffered (H1 still settling). Will activate once settled.")
+                    else:
+                        print("[ROS2] Ignoring Franka trigger (pick-place already active or done).")
+
+            self._ros2_franka_node = _FrankaTriggerListener(self)
+
+            def _spin_thread():
+                try:
+                    rclpy.spin(self._ros2_franka_node)
+                except Exception:
+                    pass
+
+            self._ros2_franka_thread = threading.Thread(target=_spin_thread, daemon=True)
+            self._ros2_franka_thread.start()
+            print(f"[ROS2] Franka trigger subscriber active on {ROS2_FRANKA_TRIGGER_TOPIC}")
+            print(f"[ROS2] This receives triggers from the MQTT-ROS2 bridge (franka/control -> /franka/trigger)")
+
+        except ImportError:
+            print("[ROS2] rclpy not available. Franka trigger will rely on direct MQTT only.")
+        except Exception as e:
+            print(f"[ROS2] Could not set up Franka trigger subscriber: {e}")
+            print("[ROS2] Franka trigger will rely on direct MQTT only.")
 
     def _setup_static_franka_opposite(self, stage, cube_offset, assets_root_path):
         """Add a static (non-functional) Ridgeback Franka on the opposite side of the active one.
@@ -1279,6 +1522,8 @@ class H1GR00TRunner(object):
         # Update stabilized eye camera each frame
         self._update_stabilized_camera()
 
+        # Publish camera images via MQTT for n8n
+        self._publish_camera_mqtt()
 
         if elapsed < self._warmup_seconds:
             self._h1.forward(step_size, np.array([self._forward_speed, 0.0, 0.0]))
@@ -1322,30 +1567,42 @@ class H1GR00TRunner(object):
                 else:
                     self._robot_settled_count = 0
                 if self._robot_settled_count >= ROBOT_SETTLED_FRAMES:
-                    # H1 has physically stopped — start delay before triggering Franka
+                    # H1 has physically stopped — now publish status and wait for MQTT trigger
                     self._robot_stopping = False
-                    self._waiting_for_franka_delay = True
-                    self._franka_delay_start_time = time.time()
-                    print(f"[H1] H1 has stopped (settled for {ROBOT_SETTLED_FRAMES} frames). Waiting {FRANKA_DELAY_SECONDS}s (2.5 min) before starting Franka pick-and-place...")
+                    self._waiting_for_franka_trigger = True
+                    # Publish H1 stopped status AFTER settling so the script is
+                    # ready to receive the franka/control trigger when n8n responds
+                    if not self._mqtt_h1_status_published:
+                        self._publish_h1_status_mqtt(
+                            "stopped",
+                            "H1 robot stopped - object detected on floor. Requesting manipulator pickup."
+                        )
+                        self._mqtt_h1_status_published = True
+                    # Also check if a trigger arrived early (before we were ready)
+                    if self._franka_triggered_by_mqtt:
+                        print("[H1] Franka trigger was already buffered from MQTT — activating now.")
+                    print(f"[H1] H1 has stopped (settled for {ROBOT_SETTLED_FRAMES} frames). Waiting for command center to trigger Franka via MQTT ({MQTT_FRANKA_CONTROL_TOPIC})...")
                 elif self._physics_step_count % 100 == 0:
                     print(f"[H1] Waiting for H1 to stop... settled_count={self._robot_settled_count}/{ROBOT_SETTLED_FRAMES}, delta={pos_delta:.4f}")
             if h1_pos is not None:
                 self._robot_last_position = h1_pos.copy()
 
-        # Wait for 2.5-minute delay before starting Franka pick-and-place
-        if self._waiting_for_franka_delay and not self._pick_place_active:
-            delay_elapsed = time.time() - self._franka_delay_start_time
-            if delay_elapsed >= FRANKA_DELAY_SECONDS:
-                self._waiting_for_franka_delay = False
-                self._pick_place_active = True
-                self._ridgeback_franka.reset()
-                print(f"[H1] 2.5-minute delay complete. Triggering Ridgeback Franka pick-and-place...")
-            elif self._physics_step_count % 200 == 0:
-                remaining = FRANKA_DELAY_SECONDS - delay_elapsed
-                print(f"[H1] Waiting for Franka delay... {delay_elapsed:.1f}s / {FRANKA_DELAY_SECONDS}s ({remaining:.1f}s remaining)")
+        # Check for MQTT/ROS2 trigger from n8n command center — activate Franka IMMEDIATELY
+        # regardless of whether H1 has settled. This allows manual workflow triggers to work.
+        if self._franka_triggered_by_mqtt and not self._pick_place_active and not self._pick_place_done:
+            self._franka_triggered_by_mqtt = False
+            self._waiting_for_franka_trigger = False
+            self._robot_stopping = False
+            self._robot_reached_object = True  # Stop H1 movement
+            self._pick_place_active = True
+            self._ridgeback_franka.reset()
+            print(f"[H1] Command center triggered Franka! Starting Ridgeback Franka pick-and-place...")
+        elif self._waiting_for_franka_trigger and not self._pick_place_active:
+            if self._physics_step_count % 200 == 0:
+                print(f"[H1] Waiting for command center MQTT trigger on {MQTT_FRANKA_CONTROL_TOPIC}...")
 
         # Movement control: walk forward with yaw steering, or stop
-        if self._pick_place_active or self._robot_stopping or self._robot_reached_object or self._waiting_for_franka_delay:
+        if self._pick_place_active or self._robot_stopping or self._robot_reached_object or self._waiting_for_franka_trigger:
             self._h1.forward(step_size, np.zeros(3))
         elif self._pick_place_done:
             # Task done — walk straight forward without steering (no target to aim at)
@@ -1388,6 +1645,8 @@ class H1GR00TRunner(object):
         print(f"  IK method: {self._ik_method}")
         print("  Detection: GR00T backbone feature novelty")
         print("  Flow: H1 walks -> approaches object -> stops")
+        print("        -> Publishes 'stopped' to MQTT h1/status")
+        print("        -> Waits for command center MQTT trigger on franka/control")
         print("        -> Ridgeback Franka picks and places cube")
         print("        H1_2 walks straight forward continuously")
         if _LIVESTREAM_ENABLED:
@@ -1421,8 +1680,9 @@ class H1GR00TRunner(object):
                 self._physics_step_count = 0
                 self._query_count = 0
                 self._camera_ready = False
-                self._waiting_for_franka_delay = False
-                self._franka_delay_start_time = 0.0
+                self._waiting_for_franka_trigger = False
+                self._franka_triggered_by_mqtt = False
+                self._mqtt_h1_status_published = False
                 self.needs_reset = False
                 self.first_step = True
                 print("[H1] Episode reset. H1 will start moving forward again.")
@@ -1438,13 +1698,36 @@ class H1GR00TRunner(object):
                     self._robot_stopping = False
                     self._robot_last_position = None
                     self._robot_settled_count = 0
-                    self._waiting_for_franka_delay = False
-                    self._franka_delay_start_time = 0.0
+                    self._waiting_for_franka_trigger = False
+                    self._franka_triggered_by_mqtt = False
                     self._policy.reset()
                     self._start_time = time.time()
                     self._query_count = 0
                     self._camera_ready = False
                     print("[H1] Pick-and-place complete! H1 resuming walk forward.")
+                    # Publish H1 walking status to MQTT
+                    self._publish_h1_status_mqtt(
+                        "walking",
+                        "H1 robot resumed walking. Manipulator task completed."
+                    )
+                    self._mqtt_h1_status_published = False
+
+        # Clean up MQTT client on exit
+        if self._mqtt_client is not None:
+            try:
+                self._mqtt_client.loop_stop()
+                self._mqtt_client.disconnect()
+                print("[MQTT] Disconnected from broker.")
+            except Exception:
+                pass
+
+        # Clean up ROS2 Franka trigger subscriber
+        if self._ros2_franka_node is not None:
+            try:
+                self._ros2_franka_node.destroy_node()
+                print("[ROS2] Franka trigger subscriber shut down.")
+            except Exception:
+                pass
 
         return
 
@@ -1485,6 +1768,12 @@ def main():
         default="damped-least-squares",
         help="Differential inverse kinematics method for Franka arm",
     )
+    parser.add_argument("--mqtt-broker-host", type=str, default=MQTT_BROKER_HOST,
+                        help="MQTT broker hostname for n8n integration")
+    parser.add_argument("--mqtt-broker-port", type=int, default=MQTT_BROKER_PORT,
+                        help="MQTT broker port for n8n integration")
+    parser.add_argument("--mqtt-camera-topic", type=str, default=MQTT_CAMERA_TOPIC,
+                        help="MQTT topic for publishing camera images to n8n")
     args = parser.parse_args()
 
     physics_dt = 1 / 200.0
@@ -1507,6 +1796,9 @@ def main():
         cube_offset=args.cube_offset,
         ik_method=args.ik_method,
         ros2_camera_topic=args.ros2_camera_topic,
+        mqtt_broker_host=args.mqtt_broker_host,
+        mqtt_broker_port=args.mqtt_broker_port,
+        mqtt_camera_topic=args.mqtt_camera_topic,
     )
     simulation_app.update()
 
@@ -1522,3 +1814,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
