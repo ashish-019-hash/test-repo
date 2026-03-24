@@ -942,15 +942,15 @@ class H1GR00TRunner(object):
             print(f"  [OK] Direct MQTT: subscribed to '{MQTT_FRANKA_CONTROL_TOPIC}'")
         else:
             print(f"  [!!] Direct MQTT: NOT available (paho-mqtt not installed?)")
+            print(f"       Fix: Install paho-mqtt in Isaac Sim's Python:")
+            print(f"       ~/.local/share/ov/pkg/isaac-sim-*/python.sh -m pip install paho-mqtt")
         if ros2_ok:
             print(f"  [OK] ROS2 bridge: subscribed to '{ROS2_FRANKA_TRIGGER_TOPIC}'")
         else:
             print(f"  [!!] ROS2 bridge: NOT available (rclpy not available?)")
         if not mqtt_ok and not ros2_ok:
             print("  [ERROR] NO trigger path available! Franka will never activate.")
-            print("  Fix: Install paho-mqtt in Isaac Sim Python environment:")
-            print("    ~/.local/share/ov/pkg/isaac-sim-*/python.sh -m pip install paho-mqtt")
-            print("  Or ensure rclpy is available and the MQTT-ROS2 bridge is running.")
+            print("  You MUST install paho-mqtt to enable MQTT triggering.")
         print("=" * 50)
         print("")
 
