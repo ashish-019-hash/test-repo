@@ -1,0 +1,247 @@
+{
+  "name": "mobile-manipulator",
+  "nodes": [
+    {
+      "parameters": {
+        "model": "gpt-oss:20b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        416,
+        432
+      ],
+      "id": "29340578-3827-4a3c-ae43-1701463fcc8b",
+      "name": "Ollama Chat Model2",
+      "credentials": {
+        "ollamaApi": {
+          "id": "d4O72qPgokitemdi",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Push status messages to command center to report Franka arm task progress and completion",
+        "topic": "command_center/topic",
+        "sendInputData": false,
+        "message": "={\"agent\":\"manipulator\",\"message\":\"{{ $json.message }}\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mqttTool",
+      "typeVersion": 1,
+      "position": [
+        656,
+        432
+      ],
+      "id": "a2888927-a995-4284-a4d2-c195d20d0752",
+      "name": "comman_center_topic1",
+      "credentials": {
+        "mqtt": {
+          "id": "EA4SLvkvDJIS1F18",
+          "name": "MQTT account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "CRITICAL: Publishing to this topic triggers the actual Franka arm in the Isaac Sim simulation. The script subscribes to franka/control and only activates the Franka pick-and-place when it receives a message here. You MUST publish to this topic to start the pick-and-place operation.",
+        "topic": "franka/control",
+        "sendInputData": false,
+        "message": "={\"agent\":\"manipulator\",\"command\":\"{{ $json.command }}\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mqttTool",
+      "typeVersion": 1,
+      "position": [
+        880,
+        432
+      ],
+      "id": "de5d3eab-0f98-4996-a836-2957bf57eea5",
+      "name": "manipulator_topic",
+      "credentials": {
+        "mqtt": {
+          "id": "EA4SLvkvDJIS1F18",
+          "name": "MQTT account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Publish Franka arm completion status so the command center knows the task is done and can instruct H1 to resume walking",
+        "topic": "franka/status",
+        "sendInputData": false,
+        "message": "={\"agent\":\"manipulator\",\"status\":\"{{ $json.status }}\",\"message\":\"{{ $json.message }}\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mqttTool",
+      "typeVersion": 1,
+      "position": [
+        1072,
+        432
+      ],
+      "id": "e3f4a5b6-c7d8-9012-efgh-franka_status1",
+      "name": "franka_status_topic",
+      "credentials": {
+        "mqtt": {
+          "id": "EA4SLvkvDJIS1F18",
+          "name": "MQTT account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Perform below action\n{{ $json.command }}",
+        "options": {
+          "systemMessage": "You are the Franka robotic arm mounted on a Ridgeback mobile base (mobile manipulator). You are controlled by the robot command center.\n\nARCHITECTURE:\nThe Isaac Sim script is waiting for a message on MQTT topic franka/control before it will activate the Franka arm. You MUST publish to the manipulator_topic tool to trigger the actual pick-and-place in the simulation. Without this publish, the Franka arm will NOT move.\n\nIMPORTANT RULES:\n1. You are triggered ONLY after the H1 robot has stopped because it detected an object on the floor.\n2. When you receive a pick-and-place command, you MUST:\n   a. FIRST: Publish the command to the manipulator_topic tool (franka/control). This is what actually triggers the Franka arm in Isaac Sim.\n   b. THEN: Notify the command center via comman_center_topic1 with message: \"Franka arm triggered. Pick-and-place operation started.\"\n   c. THEN: Publish status \"triggered\" to the franka_status_topic tool with message: \"Franka pick-and-place triggered. Arm is now executing.\"\n3. The Isaac Sim script handles the actual pick-and-place execution and will publish {\"status\":\"walking\"} to h1/status when complete.\n4. The other H1 robot (H1_2) is independent. Do not interact with it.\n\nInvoke tools once only. Your input to the tool call would be a JSON payload:\n{\n  \"message\": \"Franka arm triggered for pick and place.\",\n  \"agent\": \"manipulator\",\n  \"command\": \"pick_and_place\",\n  \"status\": \"triggered\"\n}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        560,
+        208
+      ],
+      "id": "2b260b2f-2f75-4ad9-985c-399c8a9fe75c",
+      "name": "Mobile Manipu- -lator Agent"
+    },
+    {
+      "parameters": {
+        "topic": "franka/control",
+        "sendInputData": false,
+        "message": "{\"agent\":\"manipulator\",\"command\":\"pick_and_place\",\"source\":\"mobile-manipulator-workflow\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mqtt",
+      "typeVersion": 1,
+      "position": [
+        832,
+        208
+      ],
+      "id": "a1b2c3d4-mqtt-franka-trigger-direct",
+      "name": "Trigger Franka Arm",
+      "credentials": {
+        "mqtt": {
+          "id": "EA4SLvkvDJIS1F18",
+          "name": "MQTT account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1024,
+        208
+      ],
+      "id": "a932779a-1dc2-45d6-93be-d487f6779be2",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        208
+      ],
+      "id": "c771301c-2f1b-4b61-b27f-a71df258610e",
+      "name": "When Executed by Another Workflow"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Ollama Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Mobile Manipu- -lator Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "manipulator_topic": {
+      "ai_tool": [
+        [
+          {
+            "node": "Mobile Manipu- -lator Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "comman_center_topic1": {
+      "ai_tool": [
+        [
+          {
+            "node": "Mobile Manipu- -lator Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "franka_status_topic": {
+      "ai_tool": [
+        [
+          {
+            "node": "Mobile Manipu- -lator Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mobile Manipu- -lator Agent": {
+      "main": [
+        [
+          {
+            "node": "Trigger Franka Arm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger Franka Arm": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Mobile Manipu- -lator Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "b54904a9-070d-4f88-af75-64c3e75a4944",
+  "meta": {
+    "instanceId": "d5c059112a260fd3121da45d3a1bd64789c4223f285257ca385d79e63fe05e2b"
+  },
+  "id": "WJEdH0lPV6PqgR6a",
+  "tags": []
+}

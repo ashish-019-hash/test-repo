@@ -1,0 +1,309 @@
+{
+  "name": "h1",
+  "nodes": [
+    {
+      "parameters": {
+        "topic": "h1/hello",
+        "sendInputData": false,
+        "message": "={ \"agent\":\"{{ $json.agent }}\",\"command\":\"{{ $json.command }}\"\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mqttTool",
+      "typeVersion": 1,
+      "position": [
+        784,
+        -272
+      ],
+      "id": "2b38f178-8a5e-499d-915b-670ec93b2a67",
+      "name": "h1_topic",
+      "credentials": {
+        "mqtt": {
+          "id": "EA4SLvkvDJIS1F18",
+          "name": "MQTT account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Push messages to command center",
+        "topic": "command_center/topic",
+        "sendInputData": false,
+        "message": "={\"message\":\"{{$json.message}}\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mqttTool",
+      "typeVersion": 1,
+      "position": [
+        640,
+        -272
+      ],
+      "id": "0332531b-0170-42e5-a8e9-533868ecee4f",
+      "name": "comman_center_topic",
+      "credentials": {
+        "mqtt": {
+          "id": "EA4SLvkvDJIS1F18",
+          "name": "MQTT account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Publish H1 robot status updates (e.g. stopped, walking) to the h1/status topic so the command center knows when to trigger the Franka arm",
+        "topic": "h1/status",
+        "sendInputData": false,
+        "message": "={\"agent\":\"h1\",\"status\":\"{{$json.status}}\",\"message\":\"{{$json.message}}\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mqttTool",
+      "typeVersion": 1,
+      "position": [
+        928,
+        -272
+      ],
+      "id": "f1a2b3c4-d5e6-7890-abcd-h1status01234",
+      "name": "h1_status_topic",
+      "credentials": {
+        "mqtt": {
+          "id": "EA4SLvkvDJIS1F18",
+          "name": "MQTT account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-oss:20b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        416,
+        -272
+      ],
+      "id": "e2e7d48a-bdfb-47de-b2fa-2b263335270c",
+      "name": "Ollama Chat Model1",
+      "credentials": {
+        "ollamaApi": {
+          "id": "d4O72qPgokitemdi",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Perform below command\n{{ $json.command }}\n{{ $json.content }}\nConfirm success and failure ",
+        "options": {
+          "systemMessage": "You are the H1 Agent controlling the H1 Unitree humanoid robot. You can use publish tools to send messages to MQTT topics. Invoke tools once only.\n\nARCHITECTURE:\nThe Isaac Sim script automatically publishes H1 status to h1/status when H1 stops or resumes. The script also publishes camera images to h1/camera/image_stream. Your role is to process camera images and report findings to the command center.\n\nIMPORTANT RULES:\n1. When the camera analysis detects an object on the floor, you MUST:\n   a. Publish to the command_center_topic tool with message: \"H1 camera detected object on floor. Requesting manipulator pickup.\"\n   b. Optionally publish to h1_status_topic to confirm the detection.\n2. When no object is detected, continue normal operation. Do NOT publish a stopped status.\n3. The H1_2 robot is independent and should NOT be affected by your status changes.\n4. The Isaac Sim script handles stop/resume status publishing automatically. The Franka arm is triggered by the command center dispatching to the mobile-manipulator sub-workflow, which publishes to franka/control.\n5. After the Franka completes its task, the Isaac Sim script publishes {\"status\":\"walking\"} to h1/status automatically.\n\nYour input to the tool call would be a JSON payload:\n{\n  \"message\": \"Object detected on floor.\",\n  \"agent\": \"h1 agent\",\n  \"status\": \"stopped\"\n}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        496,
+        -528
+      ],
+      "id": "e53affe2-9469-4fd8-9021-1cb497b5a92e",
+      "name": "H1 Agent"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        992,
+        -528
+      ],
+      "id": "158dcef0-0797-469c-a8fa-d83774f7aa4d",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "modelId": {
+          "__rl": true,
+          "value": "qwen3-vl:8b",
+          "mode": "list",
+          "cachedResultName": "qwen3-vl:8b"
+        },
+        "text": "This image is captured by the H1 Unitree humanoid robot during its traverse of the warehouse. Analyze this image for any objects present on the warehouse floor that may pose an operational concern.\n\nIf an object is found on the floor, return the string: \"H1 robot stopped. Object found on the floor. Send pickup command to manipulator.\"\nIf no object is found, return an empty string.",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.ollama",
+      "typeVersion": 1,
+      "position": [
+        240,
+        -560
+      ],
+      "id": "1e6e2c58-a561-4aed-be2a-4bc1e3e6fa17",
+      "name": "Analyze image",
+      "credentials": {
+        "ollamaApi": {
+          "id": "d4O72qPgokitemdi",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "message",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        -560
+      ],
+      "id": "e93565b1-7231-4791-acd5-eccd3b080f5b",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "topics": "h1/camera/image_stream",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mqttTrigger",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        -560
+      ],
+      "id": "3fcb30ea-ec9f-4bf4-9d89-0253d83b42cc",
+      "name": "camera_feed",
+      "credentials": {
+        "mqtt": {
+          "id": "EA4SLvkvDJIS1F18",
+          "name": "MQTT account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        144,
+        -352
+      ],
+      "id": "74422ced-9f22-4d7a-bfa4-2cbd763a0047",
+      "name": "When Executed by Another Workflow"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Ollama Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+                        "node": "H1 Agent",
+                        "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+        "h1_topic": {
+          "ai_tool": [
+            [
+              {
+                "node": "H1 Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "comman_center_topic": {
+      "ai_tool": [
+        [
+          {
+                "node": "H1 Agent",
+                "type": "ai_tool",
+                "index": 0
+              }
+            ]
+          ]
+        },
+        "h1_status_topic": {
+      "ai_tool": [
+        [
+          {
+                "node": "H1 Agent",
+                "type": "ai_tool",
+                "index": 0
+              }
+            ]
+          ]
+        },
+        "H1 Agent": {
+          "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze image": {
+      "main": [
+        [
+          {
+                        "node": "H1 Agent",
+                        "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Analyze image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "camera_feed": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+                        "node": "H1 Agent",
+                        "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "841d20b3-c736-46f7-abdd-cb4d5bb6f114",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d5c059112a260fd3121da45d3a1bd64789c4223f285257ca385d79e63fe05e2b"
+  },
+  "id": "PDsUUVc2ePyGnJom",
+  "tags": []
+}
