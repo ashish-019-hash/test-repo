@@ -31,9 +31,6 @@ class ChunkingAgent(BaseAgent):
         super().validate_output(delta, state)
         document = state["document"]
         chunks = delta["chunks"]
-        if not chunks:
-            raise StageValidationError(str(self.name), "no chunks produced")
-
         chunk_ids = [c.chunk_id for c in chunks]
         if len(set(chunk_ids)) != len(chunk_ids):
             raise StageValidationError(str(self.name), "chunk ids are not unique")

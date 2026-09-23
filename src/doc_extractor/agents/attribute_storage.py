@@ -18,7 +18,7 @@ from doc_extractor.agents.base import BaseAgent
 from doc_extractor.exceptions import StageValidationError
 from doc_extractor.observability.tracing import TraceCollector
 from doc_extractor.schemas.attribute import Attribute
-from doc_extractor.schemas.state import STAGE_ORDER, PipelineState, StageName
+from doc_extractor.schemas.state import PipelineState, StageName
 from doc_extractor.storage.canonical_json import dumps, loads
 from doc_extractor.storage.json_store import write_models
 
@@ -27,23 +27,7 @@ class AttributeStorageAgent(BaseAgent):
     name: ClassVar[StageName] = StageName.attribute_storage
     requires: ClassVar[tuple[str, ...]] = ("attributes",)
     produces: ClassVar[tuple[str, ...]] = ("attributes_path",)
-
-    def validate_input(self, state: PipelineState) -> None:
-        """Same as BaseAgent's default, except an empty `attributes` list is valid."""
-        idx = STAGE_ORDER.index(self.name)
-        if idx > 0:
-            prev = STAGE_ORDER[idx - 1]
-            rec = (state.get("stages") or {}).get(str(prev))
-            if rec is None or rec.status != "succeeded":
-                raise StageValidationError(
-                    str(self.name),
-                    f"predecessor stage '{prev}' has status {rec.status if rec else 'missing'}",
-                    phase="input",
-                )
-        if "attributes" not in state or state.get("attributes") is None:
-            raise StageValidationError(
-                str(self.name), "required state key 'attributes' is missing", phase="input"
-            )
+    allow_empty: ClassVar[frozenset[str]] = frozenset({"attributes"})
 
     def execute(self, state: PipelineState, trace: TraceCollector) -> dict[str, Any]:
         attributes: list[Attribute] = list(state["attributes"])

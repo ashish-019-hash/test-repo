@@ -21,6 +21,7 @@ class EntityNormalizationAgent(BaseAgent):
     name: ClassVar[StageName] = StageName.entity_normalization
     requires: ClassVar[tuple[str, ...]] = ("entities",)
     produces: ClassVar[tuple[str, ...]] = ("normalized_entities",)
+    allow_empty: ClassVar[frozenset[str]] = frozenset({"entities"})
 
     def execute(self, state: PipelineState, trace: TraceCollector) -> dict[str, Any]:
         entities: list[Entity] = state["entities"]

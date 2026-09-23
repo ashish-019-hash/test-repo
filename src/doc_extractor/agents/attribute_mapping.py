@@ -20,7 +20,7 @@ from doc_extractor.schemas.common import Evidence
 from doc_extractor.schemas.entity import CanonicalEntity, Entity
 from doc_extractor.schemas.mapping import Mapping, RelationshipType
 from doc_extractor.schemas.review import ReviewDecision
-from doc_extractor.schemas.state import STAGE_ORDER, PipelineState, StageName
+from doc_extractor.schemas.state import PipelineState, StageName
 from doc_extractor.storage import ids
 
 _RFC2119_RE = re.compile(r"\b(SHALL|MUST|SHOULD|REQUIRED)\b")
@@ -40,29 +40,9 @@ class AttributeMappingAgent(BaseAgent):
     name: ClassVar[StageName] = StageName.attribute_mapping
     requires: ClassVar[tuple[str, ...]] = ("canonical_entities", "review_decisions", "attributes", "chunks")
     produces: ClassVar[tuple[str, ...]] = ("mappings", "unmapped_attribute_ids")
-
-    def validate_input(self, state: PipelineState) -> None:
-        idx = STAGE_ORDER.index(self.name)
-        prev = STAGE_ORDER[idx - 1]
-        rec = (state.get("stages") or {}).get(str(prev))
-        if rec is None or rec.status != "succeeded":
-            raise StageValidationError(
-                str(self.name),
-                f"predecessor stage '{prev}' has status {rec.status if rec else 'missing'}",
-                phase="input",
-            )
-        for key in self.requires:
-            if key == "attributes":
-                if "attributes" not in state:
-                    raise StageValidationError(
-                        str(self.name), "required state key 'attributes' is missing", phase="input"
-                    )
-                continue
-            value = state.get(key)
-            if value is None or (isinstance(value, list | dict | str) and len(value) == 0):
-                raise StageValidationError(
-                    str(self.name), f"required state key '{key}' is missing or empty", phase="input"
-                )
+    allow_empty: ClassVar[frozenset[str]] = frozenset(
+        {"chunks", "review_decisions", "canonical_entities", "attributes"}
+    )
 
     def execute(self, state: PipelineState, trace: TraceCollector) -> dict[str, Any]:
         attributes: list[Attribute] = list(state.get("attributes", []))
