@@ -197,11 +197,12 @@ To restart one document from scratch, delete its output directory or run without
 | `llm.fallback ... missing=[AZURE_OPENAI_...]` warning and `provider=rules` | `.env` is incomplete. Fill all five variables, or accept the offline mode. `--provider azure` makes this a hard error (exit 3). |
 | `BadRequestError ... response_format / json_schema` | Your API version does not support structured outputs. The provider retries automatically with `json_object`; set `AZURE_OPENAI_API_VERSION=2024-10-21` or newer to use `json_schema`. |
 | `DeploymentNotFound` / 404 | `AZURE_OPENAI_DEPLOYMENT` must be the deployment name in Azure AI Foundry, not the model name. |
-| `document.needs_ocr: true`, zero attributes | The PDF is scanned. Install Tesseract, `pip install -e ".[ocr]"`, set `ingest.ocr_enabled: true`. |
+| `document.needs_ocr: true`, zero attributes (exit 0) | The PDF is scanned; the run completes with empty results. Install Tesseract, `pip install -e ".[ocr]"`, set `ingest.ocr_enabled: true`. |
 | Table rows extracted as prose | pdfplumber found no ruling lines. Try the DOCX/Markdown source, or lower `scoring.routing.review` to keep key-value candidates for review. |
 | `database is locked` | Another process holds `checkpoints.sqlite`. Wait for it to finish or use a different `--out`. |
 | `Nothing to resume` (exit 3) | No checkpoint for this document + config in `--out`. Run once without `--resume`. |
 | `snapshot ... not found` with `--resume-from` | The predecessor stage never completed in this `--out`. Use `--resume` or run from scratch. |
+| `snapshot ... belongs to document` with `--resume-from` | The `--out` directory holds another document's snapshots. Use one `--out` per document. The existing checkpoint is left untouched. |
 | Windows: long paths / `\` in `.env` | Quote paths in `.env` and prefer forward slashes; run inside PowerShell with the venv activated. |
 | `python3.12: command not found` | Install Python 3.12 (`pyenv install 3.12`, `uv python install 3.12`, or the OS package). |
 

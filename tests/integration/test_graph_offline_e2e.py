@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from doc_extractor.config.models import AppConfig
+from doc_extractor.graph.runner import run_pipeline
 from doc_extractor.schemas.state import STAGE_ORDER
 from helpers_d import DETERMINISTIC_FILES, EXPECTED_DIR, FORMATS, read_json, run_fixture
 
@@ -111,3 +112,23 @@ def test_formats_agree_on_entities_and_mappings(fixtures_dir: Path, tmp_path: Pa
             sorted((attr_by_id[m["attribute_id"]], ent_by_id[m["entity_id"]]) for m in final["mappings"]),
         )
     assert summaries["md"] == summaries["pdf"] == summaries["docx"]
+
+
+def test_blank_scanned_pdf_completes_with_empty_result(fixtures_dir: Path, tmp_path: Path, cfg) -> None:
+    """A blank page (needs OCR) is a valid, empty document: every stage succeeds, nothing is extracted."""
+    result = run_pipeline(fixtures_dir / "blank_page.pdf", tmp_path / "out", cfg, env={})
+    assert result.ok, result.error
+    assert all(rec["status"] == "succeeded" for rec in result.metadata.stages.values())
+    final = read_json(tmp_path / "out" / "final.json")
+    assert final["document"]["needs_ocr"] is True
+    assert final["attributes"] == [] and final["entities"] == [] and final["mappings"] == []
+    assert read_json(tmp_path / "out" / "review_queue.json") == []
+
+
+def test_empty_markdown_completes_with_empty_result(tmp_path: Path, cfg) -> None:
+    empty = tmp_path / "empty.md"
+    empty.write_text("", encoding="utf-8")
+    result = run_pipeline(empty, tmp_path / "out", cfg, env={})
+    assert result.ok, result.error
+    final = read_json(tmp_path / "out" / "final.json")
+    assert final["attributes"] == [] and final["entities"] == []

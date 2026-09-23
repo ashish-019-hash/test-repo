@@ -25,7 +25,7 @@ from doc_extractor.reviewer.similarity import (
 from doc_extractor.schemas.common import Evidence
 from doc_extractor.schemas.entity import CanonicalEntity, Entity
 from doc_extractor.schemas.review import CriterionScore, ReviewDecision
-from doc_extractor.schemas.state import STAGE_ORDER, HumanReviewItem, PipelineState, StageName
+from doc_extractor.schemas.state import HumanReviewItem, PipelineState, StageName
 from doc_extractor.storage import ids
 
 
@@ -33,29 +33,9 @@ class EntityReviewerAgent(BaseAgent):
     name: ClassVar[StageName] = StageName.entity_reviewer
     requires: ClassVar[tuple[str, ...]] = ("entities", "normalized_entities", "attributes", "chunks")
     produces: ClassVar[tuple[str, ...]] = ("duplicate_groups", "canonical_entities", "review_decisions")
-
-    def validate_input(self, state: PipelineState) -> None:
-        idx = STAGE_ORDER.index(self.name)
-        prev = STAGE_ORDER[idx - 1]
-        rec = (state.get("stages") or {}).get(str(prev))
-        if rec is None or rec.status != "succeeded":
-            raise StageValidationError(
-                str(self.name),
-                f"predecessor stage '{prev}' has status {rec.status if rec else 'missing'}",
-                phase="input",
-            )
-        for key in self.requires:
-            if key == "attributes":
-                if "attributes" not in state:
-                    raise StageValidationError(
-                        str(self.name), "required state key 'attributes' is missing", phase="input"
-                    )
-                continue
-            value = state.get(key)
-            if value is None or (isinstance(value, list | dict | str) and len(value) == 0):
-                raise StageValidationError(
-                    str(self.name), f"required state key '{key}' is missing or empty", phase="input"
-                )
+    allow_empty: ClassVar[frozenset[str]] = frozenset(
+        {"chunks", "normalized_entities", "entities", "attributes"}
+    )
 
     def execute(self, state: PipelineState, trace: TraceCollector) -> dict[str, Any]:
         entities = state["entities"]

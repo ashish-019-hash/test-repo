@@ -60,6 +60,7 @@ class AttributeExtractionAgent(BaseAgent):
     name: ClassVar[StageName] = StageName.attribute_extraction
     requires: ClassVar[tuple[str, ...]] = ("chunks", "document")
     produces: ClassVar[tuple[str, ...]] = ("attributes", "discarded_attributes")
+    allow_empty: ClassVar[frozenset[str]] = frozenset({"chunks"})
 
     def execute(self, state: PipelineState, trace: TraceCollector) -> dict[str, Any]:
         document: Document = state["document"]

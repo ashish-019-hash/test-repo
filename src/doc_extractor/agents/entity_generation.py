@@ -19,7 +19,7 @@ from doc_extractor.schemas.attribute import Attribute
 from doc_extractor.schemas.chunk import Chunk
 from doc_extractor.schemas.common import Evidence
 from doc_extractor.schemas.entity import Entity
-from doc_extractor.schemas.state import STAGE_ORDER, PipelineState, StageName
+from doc_extractor.schemas.state import PipelineState, StageName
 from doc_extractor.storage import ids
 
 # Origin priority, highest first. Used when the same (name, type) is detected by more
@@ -73,26 +73,7 @@ class EntityGenerationAgent(BaseAgent):
     name: ClassVar[StageName] = StageName.entity_generation
     requires: ClassVar[tuple[str, ...]] = ("attributes", "chunks")
     produces: ClassVar[tuple[str, ...]] = ("entities",)
-
-    def validate_input(self, state: PipelineState) -> None:
-        idx = STAGE_ORDER.index(self.name)
-        prev = STAGE_ORDER[idx - 1]
-        rec = (state.get("stages") or {}).get(str(prev))
-        if rec is None or rec.status != "succeeded":
-            raise StageValidationError(
-                str(self.name),
-                f"predecessor stage '{prev}' has status {rec.status if rec else 'missing'}",
-                phase="input",
-            )
-        if "attributes" not in state:
-            raise StageValidationError(
-                str(self.name), "required state key 'attributes' is missing", phase="input"
-            )
-        chunks = state.get("chunks")
-        if not chunks:
-            raise StageValidationError(
-                str(self.name), "required state key 'chunks' is missing or empty", phase="input"
-            )
+    allow_empty: ClassVar[frozenset[str]] = frozenset({"chunks", "attributes"})
 
     def execute(self, state: PipelineState, trace: TraceCollector) -> dict[str, Any]:
         document = state["document"]

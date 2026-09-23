@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from doc_extractor.agents.entity_generation import EntityGenerationAgent
 from doc_extractor.agents.entity_normalization import EntityNormalizationAgent
 from doc_extractor.exceptions import StageValidationError
@@ -68,9 +70,12 @@ def test_no_change_reasoning_when_already_normalized(cfg) -> None:
 def test_missing_entities_fails_validation(cfg) -> None:
     agent = EntityNormalizationAgent(cfg, FakeProvider("rules"))
     state = _state_with_entities(cfg, [])
-    try:
+    del state["entities"]
+    with pytest.raises(StageValidationError, match="'entities' is missing"):
         agent.run(state)
-        raised = False
-    except StageValidationError:
-        raised = True
-    assert raised
+
+
+def test_empty_entities_normalize_to_empty(cfg) -> None:
+    agent = EntityNormalizationAgent(cfg, FakeProvider("rules"))
+    delta = agent.run(_state_with_entities(cfg, []))
+    assert delta["normalized_entities"] == []

@@ -34,8 +34,6 @@ class DocumentProcessingAgent(BaseAgent):
     def validate_output(self, delta: dict[str, Any], state: PipelineState) -> None:
         super().validate_output(delta, state)
         document = delta["document"]
-        if not document.blocks:
-            raise StageValidationError(str(self.name), "document has no blocks")
         block_ids = {b.block_id for b in document.blocks}
         for page in document.pages:
             for block_id in page.block_ids:
