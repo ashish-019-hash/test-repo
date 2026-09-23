@@ -1,0 +1,17 @@
+# Regexes (case-insensitive) that mark document furniture. Any match fires negative.furniture (-1.0).
+patterns:
+  - '^\s*figure\s+\d+'
+  - '^\s*fig\.\s*\d+'
+  - '^\s*table\s+\d+\s*[-–—:]'
+  - '^\s*table\s+\d+\s*$'
+  - '^\s*appendix\b'
+  - '^\s*annex\b'
+  - 'revision\s+history'
+  - 'document\s+history'
+  - 'table\s+of\s+contents'
+  - '^\s*page\s+\d+(\s+of\s+\d+)?\s*$'
+  - '^\s*\d+\s*/\s*\d+\s*$'
+  - '^\s*©|copyright\s+\d{4}'
+  - 'all\s+rights\s+reserved'
+  - '^\s*confidential\s*$'
+  - '^\s*list\s+of\s+(figures|tables)'

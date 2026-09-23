@@ -1,0 +1,7 @@
+# Head nouns that denote a property of an entity. Grouped by kind; the kind is used to
+# infer attribute_type when no explicit type column exists.
+measure: [bandwidth, latency, jitter, throughput, mtu, rate, speed, size, length, capacity, delay, loss, utilization, frequency, power, weight, height, width, depth, temperature, volume, count, quantity, amount, cost, price, fee, charge, limit, threshold, percentage, ratio]
+identifier: [id, identifier, code, number, reference, key, index, tag, label, address, msisdn, imsi, iccid, imei, uri, url]
+status: [status, state, condition, flag, indicator]
+temporal: [date, time, timestamp, duration, ttl, validity, period, interval, timeout, expiry, expiration, deadline, schedule, start, end]
+descriptor: [name, type, class, category, priority, level, mode, version, description, format, medium, protocol, profile, tier, grade, role, kind, scheme, encoding, colour, color, model, vendor, manufacturer, region, zone, country, currency, language, unit, direction, topology, standard]

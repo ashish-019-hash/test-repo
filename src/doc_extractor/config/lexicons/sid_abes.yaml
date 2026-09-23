@@ -1,0 +1,30 @@
+# TM Forum SID Aggregate Business Entities (starter list). Replace or extend with the
+# full ABE list from your SID model. name -> {domain, layer}
+Party: {domain: Party, layer: Party}
+Party Role: {domain: Party, layer: Party}
+Customer: {domain: Customer, layer: Party}
+Customer Account: {domain: Customer, layer: Party}
+Customer Bill: {domain: Customer, layer: Other}
+Customer Order: {domain: Customer, layer: Other}
+Customer Interaction: {domain: Customer, layer: Other}
+Product: {domain: Product, layer: Other}
+Product Offering: {domain: Product, layer: Other}
+Product Specification: {domain: Product, layer: Other}
+Product Price: {domain: Product, layer: Other}
+Product Order: {domain: Product, layer: Other}
+Service: {domain: Service, layer: CFS}
+Customer Facing Service: {domain: Service, layer: CFS}
+Resource Facing Service: {domain: Service, layer: RFS}
+Service Specification: {domain: Service, layer: CFS}
+Service Order: {domain: Service, layer: Other}
+Service Level Agreement: {domain: Service, layer: CFS}
+Resource: {domain: Resource, layer: Resource}
+Physical Resource: {domain: Resource, layer: Resource}
+Logical Resource: {domain: Resource, layer: Resource}
+Resource Specification: {domain: Resource, layer: Resource}
+Resource Order: {domain: Resource, layer: Other}
+Location: {domain: Common, layer: Other}
+Agreement: {domain: Common, layer: Other}
+Business Interaction: {domain: Common, layer: Other}
+Usage: {domain: Common, layer: Other}
+Policy: {domain: Common, layer: Other}

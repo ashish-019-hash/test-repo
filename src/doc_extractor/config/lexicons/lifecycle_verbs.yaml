@@ -1,0 +1,2 @@
+# Verbs whose grammatical subject is a lifecycle-bearing entity (fires negative.lifecycle_subject).
+verbs: [created, submitted, suspended, terminated, activated, deactivated, cancelled, canceled, provisioned, deprovisioned, approved, rejected, fulfilled, completed, closed, opened, initiated, ordered, delivered, installed, decommissioned, renewed, expired, modified, amended, updated, deleted, archived]
