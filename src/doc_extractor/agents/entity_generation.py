@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 from doc_extractor.agents.base import BaseAgent
 from doc_extractor.exceptions import StageValidationError
@@ -249,7 +249,7 @@ class EntityGenerationAgent(BaseAgent):
     ) -> list[_RawCandidate]:
         from doc_extractor.llm import tasks as llm_tasks  # lazy: azure-mode only
 
-        task = _resolve_llm_task(llm_tasks, "entity_proposals")
+        task = llm_tasks.ENTITY_PROPOSALS_TASK
         out: list[_RawCandidate] = []
         known_names = sorted(lexicons.known_entities)
         for chunk in chunks:
@@ -261,14 +261,18 @@ class EntityGenerationAgent(BaseAgent):
             }
             result = self.provider.call(task, payload)
             trace.record_llm(result.cache_hit)
-            for proposal in getattr(result.response, "proposals", []):
-                quote = getattr(proposal, "evidence_quote", "")
-                if quote not in chunk.source_text:
+            response = cast(llm_tasks.EntityProposalsResponse, result.response)
+            for proposal in response.entities:
+                quote = proposal.evidence_quote
+                if proposal.chunk_id != chunk.chunk_id or not quote or quote not in chunk.source_text:
                     trace.count("evidence_rejected")
                     continue
-                name = getattr(proposal, "name", "")
+                name = proposal.entity_name.strip()
+                if not name:
+                    trace.count("evidence_rejected")
+                    continue
                 etype, layer = _type_layer(name, lexicons)
-                etype = getattr(proposal, "type", None) or etype
+                etype = proposal.entity_type.strip() or etype
                 ev = Evidence(chunk_id=chunk.chunk_id, text=quote)
                 out.append(
                     _RawCandidate(
@@ -360,12 +364,3 @@ class EntityGenerationAgent(BaseAgent):
                         str(self.name),
                         f"entity {entity.entity_id} evidence not grounded in chunk {ev.chunk_id}",
                     )
-
-
-def _resolve_llm_task(module: Any, name: str) -> Any:
-    const_name = name.upper()
-    if hasattr(module, const_name):
-        return getattr(module, const_name)
-    if hasattr(module, "TASKS"):
-        return module.TASKS[name]
-    raise AttributeError(f"LLM task '{name}' not found in doc_extractor.llm.tasks")

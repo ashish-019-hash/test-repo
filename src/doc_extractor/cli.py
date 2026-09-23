@@ -15,13 +15,16 @@ import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from doc_extractor import __version__
 from doc_extractor.agents import AGENT_REGISTRY
+from doc_extractor.config import load_config
 from doc_extractor.exceptions import ConfigError, DocExtractorError, IngestError
+from doc_extractor.llm.settings import load_dotenv_file
 from doc_extractor.observability import configure_logging, get_logger
 from doc_extractor.schemas.state import STAGE_ORDER
+from doc_extractor.storage.canonical_json import dumps
 
 EXIT_OK = 0
 EXIT_STAGE_FAILED = 2
@@ -49,13 +52,22 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--log-level", default=None, help="DEBUG, INFO, WARNING, ERROR")
 
 
+class _Parser(argparse.ArgumentParser):
+    """argparse exits with 2 on usage errors; this project reserves 2 for stage failures."""
+
+    def error(self, message: str) -> NoReturn:
+        self.print_usage(sys.stderr)
+        print(f"{self.prog}: error: {message}", file=sys.stderr)
+        raise SystemExit(EXIT_USAGE)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _Parser(
         prog="doc-extractor",
         description="Multi-agent document attribute and entity extraction (LangGraph + Azure OpenAI).",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True, parser_class=_Parser)
 
     run = sub.add_parser("run", help="Run the pipeline on one document")
     run.add_argument("file", type=Path, help="Input document (.pdf, .docx, .md, .txt)")
@@ -86,8 +98,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _load_env(args: argparse.Namespace) -> None:
-    from doc_extractor.llm.settings import load_dotenv_file
-
     env_file = getattr(args, "env_file", None)
     if env_file is not None and not Path(env_file).is_file():
         raise ConfigError(f"--env-file not found: {env_file}")
@@ -95,8 +105,6 @@ def _load_env(args: argparse.Namespace) -> None:
 
 
 def _load_cfg(args: argparse.Namespace) -> Any:
-    from doc_extractor.config import load_config
-
     env = dict(os.environ)
     if getattr(args, "provider", None):
         env["LLM_PROVIDER"] = args.provider
@@ -140,8 +148,6 @@ def cmd_stages(args: argparse.Namespace) -> int:
 def cmd_config(args: argparse.Namespace) -> int:
     _load_env(args)
     cfg = _load_cfg(args)
-    from doc_extractor.storage.canonical_json import dumps
-
     payload = cfg.model_dump(mode="json")
     payload["config_hash"] = cfg.config_hash
     payload["lexicon_paths"] = {k: str(v) for k, v in sorted(cfg.lexicon_paths.items())}
@@ -154,10 +160,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     cfg = _load_cfg(args)
     configure_logging(level=cfg.logging.level, fmt=cfg.logging.format)
     log = get_logger()
-    if args.resume and args.resume_from:
-        raise ConfigError("--resume and --resume-from are mutually exclusive")
-
-    from doc_extractor.graph.runner import run_pipeline
+    from doc_extractor.graph.runner import run_pipeline  # lazy: pulls in langgraph
 
     result = run_pipeline(
         args.file,

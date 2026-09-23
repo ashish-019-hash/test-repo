@@ -40,9 +40,3 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 @pytest.fixture(scope="session")
 def update_golden(request: pytest.FixtureRequest) -> bool:
     return bool(request.config.getoption("--update-golden"))
-
-
-@pytest.fixture(scope="session")
-def rules_cfg(cfg: AppConfig) -> AppConfig:
-    """Alias used by the integration tests."""
-    return cfg

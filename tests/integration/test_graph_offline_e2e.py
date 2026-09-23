@@ -17,9 +17,9 @@ def _by_name(items: list[dict], key: str) -> dict[str, dict]:
 
 @pytest.mark.parametrize("fmt", FORMATS)
 def test_final_output_matches_golden(
-    fmt: str, fixtures_dir: Path, tmp_path: Path, rules_cfg: AppConfig, update_golden: bool
+    fmt: str, fixtures_dir: Path, tmp_path: Path, cfg: AppConfig, update_golden: bool
 ) -> None:
-    result = run_fixture(fixtures_dir, fmt, tmp_path / "out", rules_cfg)
+    result = run_fixture(fixtures_dir, fmt, tmp_path / "out", cfg)
     assert result.ok, result.error
     produced = (tmp_path / "out" / "final.json").read_text(encoding="utf-8")
 
@@ -33,9 +33,9 @@ def test_final_output_matches_golden(
 
 
 @pytest.mark.parametrize("fmt", FORMATS)
-def test_pipeline_semantics(fmt: str, fixtures_dir: Path, tmp_path: Path, rules_cfg: AppConfig) -> None:
+def test_pipeline_semantics(fmt: str, fixtures_dir: Path, tmp_path: Path, cfg: AppConfig) -> None:
     out = tmp_path / "out"
-    result = run_fixture(fixtures_dir, fmt, out, rules_cfg)
+    result = run_fixture(fixtures_dir, fmt, out, cfg)
     assert result.ok, result.error
 
     # every stage succeeded, in order, with a snapshot on disk
@@ -97,13 +97,11 @@ def test_pipeline_semantics(fmt: str, fixtures_dir: Path, tmp_path: Path, rules_
         assert "started_at" not in text and "finished_at" not in text, name
 
 
-def test_formats_agree_on_entities_and_mappings(
-    fixtures_dir: Path, tmp_path: Path, rules_cfg: AppConfig
-) -> None:
+def test_formats_agree_on_entities_and_mappings(fixtures_dir: Path, tmp_path: Path, cfg: AppConfig) -> None:
     summaries = {}
     for fmt in FORMATS:
         out = tmp_path / fmt
-        assert run_fixture(fixtures_dir, fmt, out, rules_cfg).ok
+        assert run_fixture(fixtures_dir, fmt, out, cfg).ok
         final = read_json(out / "final.json")
         ent_by_id = {e["canonical_id"]: e["canonical_name"] for e in final["entities"]}
         attr_by_id = {a["attribute_id"]: a["attribute_name"] for a in final["attributes"]}

@@ -47,9 +47,9 @@ class FailingReviewer(EntityReviewerAgent):
 
 
 @pytest.fixture
-def fast_cfg(rules_cfg: AppConfig) -> AppConfig:
-    return rules_cfg.model_copy(
-        update={"retry": rules_cfg.retry.model_copy(update={"max_attempts": 2, "backoff_seconds": 0.0})}
+def fast_cfg(cfg: AppConfig) -> AppConfig:
+    return cfg.model_copy(
+        update={"retry": cfg.retry.model_copy(update={"max_attempts": 2, "backoff_seconds": 0.0})}
     )
 
 
@@ -186,3 +186,33 @@ def test_invalid_invocations(fixtures_dir: Path, tmp_path: Path, fast_cfg: AppCo
         run_fixture(fixtures_dir, "md", out, fast_cfg, resume_from="not_a_stage")
     with pytest.raises(ConfigError, match="mutually exclusive"):
         run_fixture(fixtures_dir, "md", out, fast_cfg, resume=True, resume_from="chunking")
+
+
+def test_resume_from_guards_never_destroy_a_resumable_checkpoint(
+    fixtures_dir: Path, tmp_path: Path, fast_cfg: AppConfig
+) -> None:
+    """A bad `--resume-from` must fail *before* the existing thread is deleted."""
+    out = tmp_path / "out"
+    first = run_fixture(fixtures_dir, "md", out, fast_cfg, agent_overrides=_overrides())
+    assert first.status == "failed" and first.failed_stage == StageName.entity_reviewer
+
+    # (a) another document's snapshots in the same out dir -> rejected by document_id check
+    other = tmp_path / "other.md"
+    other.write_text("# Other spec\n\nThe UNI has a port speed of 10 Gbps.\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="belongs to document"):
+        run_pipeline(other, out, fast_cfg, env={}, resume_from="entity_generation")
+
+    # (b) corrupt snapshot -> rejected as unreadable
+    snap = next(out.glob("stages/*_attribute_storage.json"))
+    good = snap.read_text(encoding="utf-8")
+    snap.write_text("{not json", encoding="utf-8")
+    with pytest.raises(ConfigError, match="unreadable"):
+        run_fixture(fixtures_dir, "md", out, fast_cfg, resume_from="entity_generation")
+    snap.write_text(good, encoding="utf-8")
+
+    # The original thread is intact: a plain --resume still continues from the failure.
+    FailingReviewer.fail = False
+    CALLS.clear()
+    resumed = run_fixture(fixtures_dir, "md", out, fast_cfg, resume=True, agent_overrides=_overrides())
+    assert resumed.ok
+    assert set(CALLS) == {"entity_reviewer", "attribute_mapping", "final_output"}

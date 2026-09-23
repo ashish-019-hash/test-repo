@@ -146,7 +146,7 @@ def test_usage_errors_exit_3(tmp_path: Path) -> None:
     assert proc.returncode == EXIT_USAGE
 
     proc = _cli("run", str(REPO / "tests/fixtures/telecom_spec.md"), "--resume-from", "bogus")
-    assert proc.returncode == 2  # argparse rejects the choice
+    assert proc.returncode == EXIT_USAGE  # argparse usage errors are mapped to 3, not 2
     assert "invalid choice" in proc.stderr
 
 
