@@ -60,6 +60,7 @@ class AttributeExtractionAgent(BaseAgent):
     name: ClassVar[StageName] = StageName.attribute_extraction
     requires: ClassVar[tuple[str, ...]] = ("chunks", "document")
     produces: ClassVar[tuple[str, ...]] = ("attributes", "discarded_attributes")
+    allow_empty: ClassVar[frozenset[str]] = frozenset({"chunks"})
 
     def execute(self, state: PipelineState, trace: TraceCollector) -> dict[str, Any]:
         document: Document = state["document"]
@@ -177,6 +178,13 @@ class AttributeExtractionAgent(BaseAgent):
                 if proposal.source_text_quote not in chunk.source_text:
                     trace.count("llm_candidate_quote_dropped")
                     continue
+                # An optional sentence is only usable as evidence when it is verbatim too;
+                # otherwise fall back to the (already grounded) quote.
+                sentence = proposal.sentence
+                if not sentence or sentence not in chunk.source_text:
+                    if sentence:
+                        trace.count("llm_candidate_sentence_dropped")
+                    sentence = proposal.source_text_quote
                 out.append(
                     (
                         chunk,
@@ -186,7 +194,7 @@ class AttributeExtractionAgent(BaseAgent):
                             block_id=chunk.block_ids[0] if chunk.block_ids else "",
                             source_text=chunk.source_text,
                             origin="llm",
-                            sentence=proposal.sentence,
+                            sentence=sentence,
                         ),
                     )
                 )

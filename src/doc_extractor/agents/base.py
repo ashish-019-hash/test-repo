@@ -33,6 +33,7 @@ class BaseAgent(ABC):
     name: ClassVar[StageName]
     requires: ClassVar[tuple[str, ...]] = ()
     produces: ClassVar[tuple[str, ...]] = ()
+    allow_empty: ClassVar[frozenset[str]] = frozenset()  # `requires` keys that may be empty
 
     def __init__(self, cfg: AppConfig, provider: LLMProvider, log: Any | None = None) -> None:
         self.cfg = cfg
@@ -41,7 +42,11 @@ class BaseAgent(ABC):
 
     # ---- hooks -----------------------------------------------------------------------------
     def validate_input(self, state: PipelineState) -> None:
-        """Default: predecessor succeeded (if any) and all `requires` keys are present and non-empty."""
+        """Default: predecessor succeeded (if any) and every `requires` key is present.
+
+        A key must also be non-empty unless the agent lists it in `allow_empty`
+        (e.g. a blank/scanned page legitimately yields zero chunks, attributes, entities).
+        """
         idx = STAGE_ORDER.index(self.name)
         if idx > 0:
             prev = STAGE_ORDER[idx - 1]
@@ -54,9 +59,13 @@ class BaseAgent(ABC):
                 )
         for key in self.requires:
             value = state.get(key)
-            if value is None or (isinstance(value, list | dict | str) and len(value) == 0):
+            if value is None:
                 raise StageValidationError(
-                    str(self.name), f"required state key '{key}' is missing or empty", phase="input"
+                    str(self.name), f"required state key '{key}' is missing", phase="input"
+                )
+            if key not in self.allow_empty and isinstance(value, list | dict | str) and len(value) == 0:
+                raise StageValidationError(
+                    str(self.name), f"required state key '{key}' is empty", phase="input"
                 )
 
     @abstractmethod

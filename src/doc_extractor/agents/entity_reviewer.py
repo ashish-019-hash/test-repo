@@ -8,7 +8,7 @@ validation (`reviewer/quality.py`). Builds one CanonicalEntity per duplicate gro
 from __future__ import annotations
 
 from itertools import combinations
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 from doc_extractor.agents.base import BaseAgent
 from doc_extractor.exceptions import StageValidationError
@@ -25,7 +25,7 @@ from doc_extractor.reviewer.similarity import (
 from doc_extractor.schemas.common import Evidence
 from doc_extractor.schemas.entity import CanonicalEntity, Entity
 from doc_extractor.schemas.review import CriterionScore, ReviewDecision
-from doc_extractor.schemas.state import STAGE_ORDER, HumanReviewItem, PipelineState, StageName
+from doc_extractor.schemas.state import HumanReviewItem, PipelineState, StageName
 from doc_extractor.storage import ids
 
 
@@ -33,29 +33,9 @@ class EntityReviewerAgent(BaseAgent):
     name: ClassVar[StageName] = StageName.entity_reviewer
     requires: ClassVar[tuple[str, ...]] = ("entities", "normalized_entities", "attributes", "chunks")
     produces: ClassVar[tuple[str, ...]] = ("duplicate_groups", "canonical_entities", "review_decisions")
-
-    def validate_input(self, state: PipelineState) -> None:
-        idx = STAGE_ORDER.index(self.name)
-        prev = STAGE_ORDER[idx - 1]
-        rec = (state.get("stages") or {}).get(str(prev))
-        if rec is None or rec.status != "succeeded":
-            raise StageValidationError(
-                str(self.name),
-                f"predecessor stage '{prev}' has status {rec.status if rec else 'missing'}",
-                phase="input",
-            )
-        for key in self.requires:
-            if key == "attributes":
-                if "attributes" not in state:
-                    raise StageValidationError(
-                        str(self.name), "required state key 'attributes' is missing", phase="input"
-                    )
-                continue
-            value = state.get(key)
-            if value is None or (isinstance(value, list | dict | str) and len(value) == 0):
-                raise StageValidationError(
-                    str(self.name), f"required state key '{key}' is missing or empty", phase="input"
-                )
+    allow_empty: ClassVar[frozenset[str]] = frozenset(
+        {"chunks", "normalized_entities", "entities", "attributes"}
+    )
 
     def execute(self, state: PipelineState, trace: TraceCollector) -> dict[str, Any]:
         entities = state["entities"]
@@ -150,7 +130,7 @@ class EntityReviewerAgent(BaseAgent):
     ) -> list[CriterionScore]:
         from doc_extractor.llm import tasks as llm_tasks  # lazy: azure-mode only
 
-        task = _resolve_llm_task(llm_tasks, "entity_quality")
+        task = llm_tasks.ENTITY_QUALITY_TASK
         payload = {
             "canonical_id": cent.canonical_id,
             "canonical_name": cent.canonical_name,
@@ -160,21 +140,24 @@ class EntityReviewerAgent(BaseAgent):
         }
         result = self.provider.call(task, payload)
         trace.record_llm(result.cache_hit)
+        response = cast(llm_tasks.EntityQualityResponse, result.response)
         max_adj = self.cfg.reviewer.quality.llm_adjustment_max
         by_name = {c.criterion: c for c in criteria}
-        for crit_name in ("specificity", "real_world_correspondence"):
-            delta = getattr(result.response, f"{crit_name}_delta", 0.0) or 0.0
-            delta = max(-max_adj, min(max_adj, delta))
-            if delta == 0.0:
+        deltas = {
+            "specificity": response.specificity_delta,
+            "real_world_correspondence": response.real_world_delta,
+        }
+        for crit_name, raw_delta in deltas.items():
+            delta = max(-max_adj, min(max_adj, raw_delta or 0.0))
+            if delta == 0.0 or crit_name not in by_name:
                 continue
-            llm_reason = getattr(result.response, f"{crit_name}_reason", "") or ""
             cs = by_name[crit_name]
             new_score = max(0.0, min(1.0, cs.score + delta))
             sign = "+" if delta >= 0 else ""
             by_name[crit_name] = CriterionScore(
                 criterion=crit_name,
                 score=new_score,
-                reason=f"{cs.reason}; llm_adjustment={sign}{delta:.2f} ({llm_reason})",
+                reason=f"{cs.reason}; llm_adjustment={sign}{delta:.2f} ({response.reason})",
             )
         return [by_name[c.criterion] for c in criteria]
 
@@ -240,12 +223,3 @@ class EntityReviewerAgent(BaseAgent):
             raise StageValidationError(str(self.name), "duplicate entity_id in review_decisions")
         if set(decision_ids) != set(canonical_ids):
             raise StageValidationError(str(self.name), "review_decisions do not match canonical_entities 1:1")
-
-
-def _resolve_llm_task(module: Any, name: str) -> Any:
-    const_name = name.upper()
-    if hasattr(module, const_name):
-        return getattr(module, const_name)
-    if hasattr(module, "TASKS"):
-        return module.TASKS[name]
-    raise AttributeError(f"LLM task '{name}' not found in doc_extractor.llm.tasks")

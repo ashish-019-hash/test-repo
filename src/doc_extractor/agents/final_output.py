@@ -32,6 +32,7 @@ class FinalOutputAgent(BaseAgent):
     name: ClassVar[StageName] = StageName.final_output
     requires: ClassVar[tuple[str, ...]] = ("document", "chunks", "canonical_entities", "review_decisions")
     produces: ClassVar[tuple[str, ...]] = ("final_output",)
+    allow_empty: ClassVar[frozenset[str]] = frozenset({"chunks", "review_decisions", "canonical_entities"})
 
     def execute(self, state: PipelineState, trace: TraceCollector) -> dict[str, Any]:
         document: Document = state["document"]

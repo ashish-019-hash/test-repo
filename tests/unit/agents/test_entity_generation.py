@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from doc_extractor.agents.entity_generation import EntityGenerationAgent
 from doc_extractor.exceptions import StageValidationError
 from doc_extractor.schemas.state import StageName
@@ -88,10 +90,16 @@ def test_empty_attributes_is_a_valid_input(cfg) -> None:
 
 def test_missing_chunks_fails_validation(cfg) -> None:
     agent = EntityGenerationAgent(cfg, FakeProvider("rules"))
-    state = base_state(StageName.attribute_storage, chunks=[])
-    try:
+    state = base_state(StageName.attribute_storage)
+    del state["chunks"]
+    with pytest.raises(StageValidationError, match="'chunks' is missing"):
         agent.run(state)
-        raised = False
-    except StageValidationError:
-        raised = True
-    assert raised
+
+
+def test_empty_document_yields_no_entities(cfg) -> None:
+    """A blank/scanned page reaches this stage with zero chunks and attributes: valid, empty."""
+    agent = EntityGenerationAgent(cfg, FakeProvider("rules"))
+    state = base_state(StageName.attribute_storage, chunks=[], attributes=[], discarded_attributes=[])
+    delta = agent.run(state)
+    assert delta["entities"] == []
+    assert delta["stages"][str(StageName.entity_generation)].status == "succeeded"

@@ -32,15 +32,16 @@ from doc_extractor.graph.build import (
     build_agents,
     compile_graph,
     open_checkpointer,
-    thread_config,
     thread_id,
 )
 from doc_extractor.llm.base import LLMCallResult, LLMProvider, LLMTask
 from doc_extractor.llm.factory import build_provider, provider_model_label
+from doc_extractor.llm.settings import load_dotenv_file
 from doc_extractor.observability import bind_context, clear_context, get_logger, utc_now_iso
 from doc_extractor.schemas.output import RunMetadata
 from doc_extractor.schemas.state import STAGE_ORDER, PipelineState, StageName, StageRecord
 from doc_extractor.storage import ids
+from doc_extractor.storage.canonical_json import dumps
 from doc_extractor.storage.snapshots import load_snapshot, save_snapshot, snapshot_path
 
 RUN_FILE = "run.json"
@@ -87,10 +88,6 @@ class RunResult:
 def stage_index(stage: StageName) -> int:
     """1-based position used in snapshot file names (`01_document_processing.json`)."""
     return STAGE_ORDER.index(stage) + 1
-
-
-def _succeeded_count(state: Mapping[str, Any]) -> int:
-    return sum(1 for r in (state.get("stages") or {}).values() if r.status == "succeeded")
 
 
 def _last_succeeded_stage(state: Mapping[str, Any]) -> StageName | None:
@@ -141,6 +138,33 @@ def strip_from_stage(state: PipelineState, stage: StageName, out_dir: Path) -> P
     return cast(PipelineState, new)
 
 
+def _load_seed_snapshot(out: Path, pred: StageName, stage: StageName, doc_id: str) -> PipelineState:
+    """Load and validate the predecessor snapshot used to seed a `--resume-from` run."""
+    snap_file = snapshot_path(out, stage_index(pred), str(pred))
+    if not snap_file.is_file():
+        raise ConfigError(
+            f"Cannot resume from '{stage}': snapshot {snap_file} not found. "
+            "Run the pipeline at least once first."
+        )
+    try:
+        snapshot = load_snapshot(snap_file)
+    except Exception as exc:  # corrupt / hand-edited snapshot
+        raise ConfigError(f"Cannot resume from '{stage}': snapshot {snap_file} is unreadable: {exc}") from exc
+    rec = (snapshot.get("stages") or {}).get(str(pred))
+    if rec is None or rec.status != "succeeded":
+        raise ConfigError(
+            f"Cannot resume from '{stage}': snapshot {snap_file} does not record a successful '{pred}'"
+        )
+    document = snapshot.get("document")
+    if document is None or document.document_id != doc_id:
+        found = document.document_id if document is not None else "none"
+        raise ConfigError(
+            f"Cannot resume from '{stage}': snapshot {snap_file} belongs to document {found}, "
+            f"but the input file is {doc_id}. Use a different --out directory per document."
+        )
+    return strip_from_stage(snapshot, stage, out)
+
+
 def _resolve_stage(name: str) -> StageName:
     try:
         return StageName(name)
@@ -148,14 +172,6 @@ def _resolve_stage(name: str) -> StageName:
         raise ConfigError(
             f"Unknown stage '{name}'. Valid stages: {', '.join(str(s) for s in STAGE_ORDER)}"
         ) from exc
-
-
-def _write_run_json(out_dir: Path, meta: RunMetadata) -> Path:
-    from doc_extractor.storage.canonical_json import dumps
-
-    path = out_dir / RUN_FILE
-    path.write_text(dumps(meta), encoding="utf-8")
-    return path
 
 
 def run_pipeline(
@@ -184,13 +200,16 @@ def run_pipeline(
     out.mkdir(parents=True, exist_ok=True)
 
     logger = log or get_logger()
+    if provider is None and env is None:
+        # Library callers get the same .env behaviour as the CLI (shell vars still win).
+        load_dotenv_file()
     base_provider = provider or build_provider(cfg, env=env, cache_dir=out / LLM_CACHE_DIR, log=logger)
     model_label = provider_model_label(base_provider)
     recorder = _FingerprintRecorder(base_provider)
 
     doc_id = ids.document_id(src.read_bytes())
     thread = thread_id(doc_id, cfg.config_hash)
-    config = thread_config(thread)
+    config = {"configurable": {"thread_id": thread}}
     run_id = uuid.uuid4().hex
     started = utc_now_iso()
     bind_context(run_id=run_id, document_id=doc_id)
@@ -216,18 +235,17 @@ def run_pipeline(
                 logger.info("run.resume", after=str(_last_succeeded_stage(snapshot.values)))
             elif resume_from is not None:
                 stage = _resolve_stage(str(resume_from))
-                saver.delete_thread(thread)
                 if stage == STAGE_ORDER[0]:
+                    seed = None
+                else:
+                    # Validate the snapshot fully BEFORE touching the existing checkpoint, so a
+                    # typo or a stale/foreign snapshot never destroys a resumable thread.
+                    pred = STAGE_ORDER[STAGE_ORDER.index(stage) - 1]
+                    seed = _load_seed_snapshot(out, pred, stage, doc_id)
+                saver.delete_thread(thread)
+                if seed is None:
                     graph_input = initial_state(src, out, cfg)
                 else:
-                    pred = STAGE_ORDER[STAGE_ORDER.index(stage) - 1]
-                    snap_file = snapshot_path(out, stage_index(pred), str(pred))
-                    if not snap_file.is_file():
-                        raise ConfigError(
-                            f"Cannot resume from '{stage}': snapshot {snap_file} not found. "
-                            "Run the pipeline at least once first."
-                        )
-                    seed = strip_from_stage(load_snapshot(snap_file), stage, out)
                     seed["input_path"] = str(src)
                     graph.update_state(config, dict(seed), as_node=str(pred))
                     graph_input = None
@@ -237,14 +255,12 @@ def run_pipeline(
                 graph_input = initial_state(src, out, cfg)
 
             try:
-                seen = _succeeded_count(graph.get_state(config).values or {})
+                last = _last_succeeded_stage(graph.get_state(config).values or {})
                 for values in graph.stream(graph_input, config, stream_mode="values"):
-                    done = _succeeded_count(values)
-                    if done > seen:
-                        seen = done
-                        last = _last_succeeded_stage(values)
-                        if last is not None:
-                            save_snapshot(out, stage_index(last), str(last), values)
+                    done = _last_succeeded_stage(values)
+                    if done is not None and done != last:
+                        last = done
+                        save_snapshot(out, stage_index(done), str(done), values)
             except StageFailedError as exc:
                 failed_stage = exc.stage
                 error = str(exc)
@@ -262,14 +278,13 @@ def run_pipeline(
     finally:
         clear_context()
 
-    records: dict[str, Any] = {
-        k: v.model_dump(mode="json") for k, v in (final_state.get("stages") or {}).items()
-    }
+    stage_records: dict[str, StageRecord] = dict(final_state.get("stages") or {})
     if failed_record is not None:
-        records[str(failed_record.stage)] = failed_record.model_dump(mode="json")
-    for s in STAGE_ORDER:
-        records.setdefault(str(s), StageRecord(stage=s, status="pending").model_dump(mode="json"))
-    records = {str(s): records[str(s)] for s in STAGE_ORDER}
+        stage_records[str(failed_record.stage)] = failed_record
+    records = {
+        str(s): stage_records.get(str(s), StageRecord(stage=s, status="pending")).model_dump(mode="json")
+        for s in STAGE_ORDER
+    }
 
     status = "failed" if failed_stage else "succeeded"
     meta = RunMetadata(
@@ -288,7 +303,7 @@ def run_pipeline(
         stages=records,
         traces=[t.model_dump(mode="json") for t in final_state.get("traces", [])],
     )
-    _write_run_json(out, meta)
+    (out / RUN_FILE).write_text(dumps(meta), encoding="utf-8")
     logger.info("run.done", status=status, out_dir=str(out))
     return RunResult(
         status=status,

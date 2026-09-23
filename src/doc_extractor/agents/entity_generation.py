@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 from doc_extractor.agents.base import BaseAgent
 from doc_extractor.exceptions import StageValidationError
@@ -19,7 +19,7 @@ from doc_extractor.schemas.attribute import Attribute
 from doc_extractor.schemas.chunk import Chunk
 from doc_extractor.schemas.common import Evidence
 from doc_extractor.schemas.entity import Entity
-from doc_extractor.schemas.state import STAGE_ORDER, PipelineState, StageName
+from doc_extractor.schemas.state import PipelineState, StageName
 from doc_extractor.storage import ids
 
 # Origin priority, highest first. Used when the same (name, type) is detected by more
@@ -73,26 +73,7 @@ class EntityGenerationAgent(BaseAgent):
     name: ClassVar[StageName] = StageName.entity_generation
     requires: ClassVar[tuple[str, ...]] = ("attributes", "chunks")
     produces: ClassVar[tuple[str, ...]] = ("entities",)
-
-    def validate_input(self, state: PipelineState) -> None:
-        idx = STAGE_ORDER.index(self.name)
-        prev = STAGE_ORDER[idx - 1]
-        rec = (state.get("stages") or {}).get(str(prev))
-        if rec is None or rec.status != "succeeded":
-            raise StageValidationError(
-                str(self.name),
-                f"predecessor stage '{prev}' has status {rec.status if rec else 'missing'}",
-                phase="input",
-            )
-        if "attributes" not in state:
-            raise StageValidationError(
-                str(self.name), "required state key 'attributes' is missing", phase="input"
-            )
-        chunks = state.get("chunks")
-        if not chunks:
-            raise StageValidationError(
-                str(self.name), "required state key 'chunks' is missing or empty", phase="input"
-            )
+    allow_empty: ClassVar[frozenset[str]] = frozenset({"chunks", "attributes"})
 
     def execute(self, state: PipelineState, trace: TraceCollector) -> dict[str, Any]:
         document = state["document"]
@@ -249,7 +230,7 @@ class EntityGenerationAgent(BaseAgent):
     ) -> list[_RawCandidate]:
         from doc_extractor.llm import tasks as llm_tasks  # lazy: azure-mode only
 
-        task = _resolve_llm_task(llm_tasks, "entity_proposals")
+        task = llm_tasks.ENTITY_PROPOSALS_TASK
         out: list[_RawCandidate] = []
         known_names = sorted(lexicons.known_entities)
         for chunk in chunks:
@@ -261,14 +242,18 @@ class EntityGenerationAgent(BaseAgent):
             }
             result = self.provider.call(task, payload)
             trace.record_llm(result.cache_hit)
-            for proposal in getattr(result.response, "proposals", []):
-                quote = getattr(proposal, "evidence_quote", "")
-                if quote not in chunk.source_text:
+            response = cast(llm_tasks.EntityProposalsResponse, result.response)
+            for proposal in response.entities:
+                quote = proposal.evidence_quote
+                if proposal.chunk_id != chunk.chunk_id or not quote or quote not in chunk.source_text:
                     trace.count("evidence_rejected")
                     continue
-                name = getattr(proposal, "name", "")
+                name = proposal.entity_name.strip()
+                if not name:
+                    trace.count("evidence_rejected")
+                    continue
                 etype, layer = _type_layer(name, lexicons)
-                etype = getattr(proposal, "type", None) or etype
+                etype = proposal.entity_type.strip() or etype
                 ev = Evidence(chunk_id=chunk.chunk_id, text=quote)
                 out.append(
                     _RawCandidate(
@@ -360,12 +345,3 @@ class EntityGenerationAgent(BaseAgent):
                         str(self.name),
                         f"entity {entity.entity_id} evidence not grounded in chunk {ev.chunk_id}",
                     )
-
-
-def _resolve_llm_task(module: Any, name: str) -> Any:
-    const_name = name.upper()
-    if hasattr(module, const_name):
-        return getattr(module, const_name)
-    if hasattr(module, "TASKS"):
-        return module.TASKS[name]
-    raise AttributeError(f"LLM task '{name}' not found in doc_extractor.llm.tasks")
