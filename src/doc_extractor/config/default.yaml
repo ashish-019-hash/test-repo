@@ -1,0 +1,124 @@
+# Default runtime configuration for doc-extractor.
+# Every value can be overridden by a user config file (--config) or by an environment
+# variable of the form DOC_EXTRACTOR__<section>__<key>=<yaml value>,
+# e.g. DOC_EXTRACTOR__scoring__routing__accept=0.9
+llm:
+  provider: auto            # auto | azure | rules | mock  (LLM_PROVIDER env var is a shortcut)
+  temperature: 0.0
+  seed: 42
+  cache_dir: null           # default: <out>/llm_cache
+  max_output_tokens: 2000
+  timeout_seconds: 60
+  replay_dir: null
+  replay_strict: false
+
+ingest:
+  min_chars_per_page: 20    # below this a page is flagged ocr_required
+  ocr_page_ratio: 0.5       # document.needs_ocr when this share of pages is flagged
+  ocr_enabled: false        # run pytesseract on flagged pages when installed
+
+chunking:
+  strategy: heading_aware   # by_page | fixed_tokens | heading_aware
+  max_tokens: 800
+  overlap_tokens: 100
+  heading_split_level: 3
+  sentence_regex: '(?<=[.!?])\s+(?=[A-Z])'
+
+scoring:
+  weights:
+    structural.spec_table_row: 0.45
+    structural.key_value_pair: 0.30
+    structural.attribute_heading: 0.20
+    lexical.property_noun_head: 0.20
+    lexical.gazetteer_hit: 0.15
+    value_domain.typed_value: 0.20
+    value_domain.enum_range_default: 0.15
+    value_domain.cardinality_marker: 0.15
+    syntactic.binding_pattern: 0.20
+    negative.has_sub_attributes: -0.40
+    negative.lifecycle_subject: -0.30
+    negative.counted_instances: -0.25
+    negative.verb_nominalisation: -0.25
+    negative.furniture: -1.0
+  clamp: {min: 0.0, max: 1.0}
+  short_circuit: {enabled: true, confidence: 1.0, min_populated_cells: 3, max_name_tokens: 6}
+  routing: {accept: 0.85, review: 0.50}
+  spec_table_headers:
+    name: [name, attribute, parameter, field, attribute name, parameter name]
+    type: [type, datatype, data type]
+    units: [unit, units]
+    optionality: [m/o/c, moc, optionality, mandatory, opt, m/o]
+    default: [default, default value]
+    description: [description, desc, definition]
+    range: [range, values, allowed values, domain, value range, enumeration]
+  attribute_heading_regex: 'attribute|parameter|characteristic|field|property|data element'
+
+binding:
+  scope_multipliers:
+    table_subject: 1.0
+    nearest_heading: 0.9
+    syntactic: 0.85
+    compound_modifier: 0.7
+    document_default: 0.5
+  distance_decay: 0.05
+  floor: 0.5
+  document_default_entity: null
+
+entity_generation:
+  promotion_min_sub_attributes: 2
+  min_mentions: 2
+  min_confidence: 0.5
+  origin_weights: {binding: 0.9, promotion: 0.85, lexicon: 0.6, llm: 0.7}
+
+reviewer:
+  duplicate:
+    duplicate_threshold: 0.90
+    possible_threshold: 0.70
+    require_type_match: true
+    weights:
+      name_sim: 0.20
+      normalized_exact: 0.25
+      type_match: 0.15
+      chunk_overlap: 0.15
+      attribute_overlap: 0.10
+      evidence_overlap: 0.05
+      alias_link: 0.10
+  quality:
+    accept: 0.75
+    review: 0.50
+    llm_adjustment_max: 0.2
+    weights:
+      specificity: 0.125
+      uniqueness: 0.125
+      real_world_correspondence: 0.125
+      contextual_relevance: 0.125
+      completeness: 0.125
+      source_grounding: 0.125
+      entity_type_correctness: 0.125
+      disambiguation_potential: 0.125
+
+mapping:
+  min_confidence: 0.5
+  include_review_entities: false
+
+lexicons:
+  property_nouns: lexicons/property_nouns.yaml
+  gazetteer: lexicons/telecom_gazetteer.yaml
+  sid_abes: lexicons/sid_abes.yaml
+  known_entities: lexicons/known_entities.yaml
+  aliases: lexicons/aliases.yaml
+  furniture_patterns: lexicons/furniture_patterns.yaml
+  lifecycle_verbs: lexicons/lifecycle_verbs.yaml
+  generic_terms: [system, data, information, value, item, thing, object, element]
+
+retry:
+  max_attempts: 3
+  backoff_seconds: 0.5
+
+output:
+  float_precision: 4
+  graph_export: null        # null | json | graphml
+
+logging:
+  level: INFO
+  format: console           # console | json

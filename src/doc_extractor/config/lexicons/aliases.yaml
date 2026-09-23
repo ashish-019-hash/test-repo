@@ -1,0 +1,13 @@
+# Bidirectional alias table used by Entity Normalization and duplicate detection.
+# canonical -> [aliases]. Matching is case-insensitive after normalization.
+EVC: [Ethernet Virtual Connection, Ethernet Virtual Circuit]
+UNI: [User Network Interface, User-Network Interface]
+ENNI: [External Network-Network Interface, External Network Network Interface]
+OVC: [Operator Virtual Connection]
+E-Line: [Ethernet Line, Ethernet Private Line, EPL]
+E-LAN: [Ethernet LAN]
+Subscriber: [end user, end-user]
+Service Provider: [operator, SP]
+SIM: [SIM card, UICC]
+SLA: [Service Level Agreement]
+CoS: [Class of Service]

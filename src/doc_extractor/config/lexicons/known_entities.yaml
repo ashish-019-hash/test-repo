@@ -1,0 +1,18 @@
+# Known real-world entities and their layer (CFS | RFS | Resource | Party | Other).
+# Each entry: name -> {layer, type, aliases}
+EVC: {layer: CFS, type: Service, aliases: [Ethernet Virtual Connection, Ethernet Virtual Circuit]}
+UNI: {layer: Resource, type: Interface, aliases: [User Network Interface, User-Network Interface]}
+ENNI: {layer: Resource, type: Interface, aliases: [External Network-Network Interface]}
+OVC: {layer: RFS, type: Service, aliases: [Operator Virtual Connection]}
+Subscriber: {layer: Party, type: Party, aliases: [subscriber]}
+Customer: {layer: Party, type: Party, aliases: [customer, end customer]}
+Service Provider: {layer: Party, type: Party, aliases: [operator, provider]}
+Order: {layer: Other, type: BusinessInteraction, aliases: [service order, product order]}
+Product: {layer: Other, type: Product, aliases: [product offering]}
+Service: {layer: CFS, type: Service, aliases: []}
+Bandwidth Profile: {layer: RFS, type: Policy, aliases: [BWP]}
+SIM: {layer: Resource, type: PhysicalResource, aliases: [SIM card, UICC]}
+Device: {layer: Resource, type: PhysicalResource, aliases: [user equipment, UE, terminal]}
+Access Point: {layer: Resource, type: LogicalResource, aliases: []}
+Bill: {layer: Other, type: CustomerBill, aliases: [invoice]}
+Account: {layer: Party, type: Account, aliases: [customer account, billing account]}
