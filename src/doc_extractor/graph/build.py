@@ -53,10 +53,6 @@ def _exported_types(module: Any) -> list[type]:
 ALLOWED_CHECKPOINT_TYPES: tuple[type, ...] = tuple(t for m in _SCHEMA_MODULES for t in _exported_types(m))
 
 
-def make_serializer() -> JsonPlusSerializer:
-    return JsonPlusSerializer(allowed_msgpack_modules=ALLOWED_CHECKPOINT_TYPES)
-
-
 def build_agents(
     cfg: AppConfig,
     provider: LLMProvider,
@@ -90,18 +86,14 @@ def compile_graph(agents: Mapping[StageName, BaseAgent], checkpointer: BaseCheck
     return build_state_graph(agents).compile(checkpointer=checkpointer)
 
 
-def checkpoint_path(out_dir: str | Path) -> Path:
-    return Path(out_dir) / CHECKPOINT_FILE
-
-
 @contextmanager
 def open_checkpointer(out_dir: str | Path) -> Iterator[SqliteSaver]:
     """SQLite checkpointer stored at `<out_dir>/checkpoints.sqlite`."""
-    path = checkpoint_path(out_dir)
+    path = Path(out_dir) / CHECKPOINT_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), check_same_thread=False)
     try:
-        yield SqliteSaver(conn, serde=make_serializer())
+        yield SqliteSaver(conn, serde=JsonPlusSerializer(allowed_msgpack_modules=ALLOWED_CHECKPOINT_TYPES))
     finally:
         conn.close()
 
@@ -110,19 +102,12 @@ def thread_id(document_id: str, config_hash: str) -> str:
     return f"{document_id}-{config_hash}"
 
 
-def thread_config(thread: str) -> dict[str, Any]:
-    return {"configurable": {"thread_id": thread}}
-
-
 __all__ = [
     "ALLOWED_CHECKPOINT_TYPES",
     "CHECKPOINT_FILE",
     "build_agents",
     "build_state_graph",
-    "checkpoint_path",
     "compile_graph",
-    "make_serializer",
     "open_checkpointer",
-    "thread_config",
     "thread_id",
 ]
