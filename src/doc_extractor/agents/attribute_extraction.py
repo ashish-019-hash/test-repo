@@ -143,6 +143,10 @@ class AttributeExtractionAgent(BaseAgent):
         attributes = self._dedup(accepted_or_review)
         attributes.sort(key=lambda a: a.attribute_id)
         discarded.sort(key=lambda a: a.attribute_id)
+        # Review items must only reference attributes that survived in-document dedup.
+        surviving = {a.attribute_id for a in attributes}
+        human_review_queue = [h for h in human_review_queue if set(h.ref_ids) <= surviving]
+        human_review_queue.sort(key=lambda h: h.item_id)
 
         trace.count("attributes_accepted", len(attributes))
         trace.count("attributes_discarded", len(discarded))
@@ -250,7 +254,11 @@ class AttributeExtractionAgent(BaseAgent):
             if existing is None:
                 best[key] = attr
                 continue
-            keep, other = (attr, existing) if attr.confidence > existing.confidence else (existing, attr)
+            # Higher confidence wins; ties break on attribute_id so the result is order-independent.
+            if (attr.confidence, attr.attribute_id) > (existing.confidence, existing.attribute_id):
+                keep, other = attr, existing
+            else:
+                keep, other = existing, attr
             merged_evidence = list(keep.evidence)
             for ev in other.evidence:
                 if ev not in merged_evidence:

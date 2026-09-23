@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from doc_extractor.llm.base import LLMCallResult, LLMProvider, LLMTask
+from doc_extractor.observability.logging import get_logger
 from doc_extractor.storage import canonical_json
 
 
@@ -41,6 +42,7 @@ class CachingProvider:
         key = cache_key(task, payload, self.model, self.api_version)
         path = self.cache_dir / f"{key}.json"
         if path.is_file():
+            get_logger().info("llm.cache_hit", provider=self.name, task=task.name, key=key)
             data = json.loads(path.read_text(encoding="utf-8"))
             response = task.response_model.model_validate(data["response"])
             return LLMCallResult(

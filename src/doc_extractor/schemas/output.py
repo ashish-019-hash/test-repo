@@ -61,5 +61,6 @@ class RunMetadata(StrictModel):
     config_hash: str
     package_version: str
     status: Literal["succeeded", "failed"]
+    thread_id: str | None = None
     stages: dict[str, Any] = Field(default_factory=dict)
     traces: list[dict[str, Any]] = Field(default_factory=list)

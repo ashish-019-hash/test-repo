@@ -18,6 +18,7 @@ from doc_extractor.config.models import AppConfig
 from doc_extractor.exceptions import ConfigError, LLMPermanentError, LLMTransientError
 from doc_extractor.llm.base import LLMCallResult, LLMTask
 from doc_extractor.llm.settings import AzureSettings
+from doc_extractor.observability.logging import get_logger
 
 _SYSTEM_PROMPT = (
     "You are a deterministic JSON-generating assistant. Respond with a single JSON "
@@ -77,6 +78,7 @@ class AzureOpenAIProvider:
         }
         messages: list[dict[str, str]] = [system, user]
 
+        get_logger().info("llm.call", provider=self.name, task=task.name, model=self.model_label)
         completion = self._create(task, messages)
         response, error = self._parse(task, completion)
         if error is None:

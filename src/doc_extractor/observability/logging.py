@@ -11,6 +11,24 @@ import structlog
 _CONFIGURED = False
 
 
+class _LazyStderrLogger:
+    """Writes each rendered line to *the current* `sys.stderr`.
+
+    structlog's `PrintLogger` captures the stream once, which breaks when a test
+    harness (pytest capsys) swaps and closes `sys.stderr` between tests.
+    """
+
+    def msg(self, message: str) -> None:
+        print(message, file=sys.stderr, flush=True)
+
+    log = debug = info = warning = warn = error = critical = exception = fatal = msg
+
+
+class _LazyStderrLoggerFactory:
+    def __call__(self, *args: Any) -> _LazyStderrLogger:
+        return _LazyStderrLogger()
+
+
 def configure_logging(level: str = "INFO", fmt: str = "console") -> None:
     global _CONFIGURED
     renderer: Any
@@ -28,7 +46,7 @@ def configure_logging(level: str = "INFO", fmt: str = "console") -> None:
             renderer,
         ],
         wrapper_class=structlog.make_filtering_bound_logger(logging.getLevelName(level.upper())),
-        logger_factory=structlog.PrintLoggerFactory(file=sys.stderr),
+        logger_factory=_LazyStderrLoggerFactory(),
         cache_logger_on_first_use=False,
     )
     _CONFIGURED = True

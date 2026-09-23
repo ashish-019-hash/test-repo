@@ -1,7 +1,8 @@
 """Agent 4: AttributeStorageAgent.
 
 Re-validates `attributes` by round-tripping through JSON and writes
-`out/attributes.json` via the canonical JSON writer. Alters no field: the
+`out/attributes.json` (plus `out/discarded.json` for the discarded bucket) via the
+canonical JSON writer. Alters no field: the
 reloaded models must equal the input exactly. An empty attribute list is a
 legitimate outcome (a document with no detected attributes), so
 `validate_input` allows it while still requiring the key to be present and
@@ -48,7 +49,10 @@ class AttributeStorageAgent(BaseAgent):
         attributes: list[Attribute] = list(state["attributes"])
         out_dir = Path(state["out_dir"])
         path = write_models(out_dir, "attributes", attributes)
+        discarded: list[Attribute] = list(state.get("discarded_attributes") or [])
+        write_models(out_dir, "discarded", discarded)
         trace.count("attributes_written", len(attributes))
+        trace.count("discarded_written", len(discarded))
         return {"attributes_path": str(path)}
 
     def validate_output(self, delta: dict[str, Any], state: PipelineState) -> None:
