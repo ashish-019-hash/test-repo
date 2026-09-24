@@ -127,7 +127,7 @@ class AzureOpenAIProvider:
                 model=self.settings.deployment,
                 temperature=self.cfg.llm.temperature,
                 seed=self.cfg.llm.seed,
-                max_tokens=max_tokens,
+                max_completion_tokens=max_tokens,
                 messages=messages,
                 response_format=response_format,
             )
@@ -146,6 +146,14 @@ class AzureOpenAIProvider:
             if self._use_json_object or not _mentions_schema_rejection(exc):
                 raise LLMPermanentError(str(exc)) from exc
             self._use_json_object = True
+            get_logger().warning(
+                "llm.schema_fallback",
+                provider=self.name,
+                task=task.name,
+                error=str(exc),
+                note="json_schema rejected; switching to json_object mode for the "
+                "remainder of this provider instance's lifetime",
+            )
             fallback_format = self._response_format(task)
             try:
                 return self._invoke(messages, fallback_format, max_tokens=task.max_output_tokens)

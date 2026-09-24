@@ -21,7 +21,7 @@ class CandidateProposal(_Model):
 
     raw_name: str
     source_text_quote: str
-    sentence: str | None = None
+    sentence: str | None  # required-but-nullable: Azure strict json_schema rejects optional fields
 
 
 class AttributeCandidatesResponse(_Model):

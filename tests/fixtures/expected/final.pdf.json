@@ -1,386 +1,8 @@
 {
   "attributes": [
     {
-      "aliases": [
-        "Excess Information Rate"
-      ],
-      "attribute_id": "attr-01cb268053ce82c5",
-      "attribute_name": "eir",
-      "attribute_type": "integer",
-      "binding": {
-        "confidence": 1.0,
-        "entity_name": "EVC",
-        "evidence": "EVC Service Attributes",
-        "scope": "table_subject",
-        "structural_distance": 0
-      },
-      "cardinality": null,
-      "confidence": 1.0,
-      "default": "0",
-      "description": "Excess Information Rate for the EVC",
-      "display_name": "EIR",
-      "entity": "EVC",
-      "evidence": [
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0005",
-          "end": null,
-          "start": null,
-          "text": "| EIR | Integer | Mbps | O | 0–1000 | 0 | Excess Information Rate for the EVC |"
-        }
-      ],
-      "layer": "CFS",
-      "optionality": "O",
-      "origin": "spec_table",
-      "provenance": {
-        "bbox": [
-          54.0,
-          353.2,
-          558.0,
-          484.2
-        ],
-        "block_id": "blk-doc-c50fb00405a851a8-p1-0008",
-        "file": "telecom_spec.pdf",
-        "page": 1
-      },
-      "score": {
-        "clamped": 1.0,
-        "discard_reason": null,
-        "hits": [
-          {
-            "evidence": "\"EIR\" matches gazetteer entry \"EIR\"",
-            "name": "lexical.gazetteer_hit",
-            "weight": 0.15
-          },
-          {
-            "evidence": "head noun \"rate\" (from \"Excess Information Rate\") is a property noun",
-            "name": "lexical.property_noun_head",
-            "weight": 0.2
-          },
-          {
-            "evidence": "heading \"4 Service Attributes\" matches",
-            "name": "structural.attribute_heading",
-            "weight": 0.2
-          },
-          {
-            "evidence": "spec table header matched 6 categories",
-            "name": "structural.spec_table_row",
-            "weight": 0.45
-          },
-          {
-            "evidence": "optionality cell = \"O\"",
-            "name": "value_domain.cardinality_marker",
-            "weight": 0.15
-          },
-          {
-            "evidence": "range cell = \"0–1000\"",
-            "name": "value_domain.enum_range_default",
-            "weight": 0.15
-          },
-          {
-            "evidence": "type cell = \"Integer\"",
-            "name": "value_domain.typed_value",
-            "weight": 0.2
-          }
-        ],
-        "raw_sum": 1.5,
-        "route": "accept",
-        "short_circuit": true
-      },
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0005",
-      "source_document": "doc-c50fb00405a851a8",
-      "source_text": "| EIR | Integer | Mbps | O | 0–1000 | 0 | Excess Information Rate for the EVC |",
-      "unit": {
-        "base": "bit/s",
-        "factor": 1000000.0,
-        "raw": "Mbps"
-      },
-      "value_domain": {
-        "from": 0.0,
-        "kind": "range",
-        "pattern": null,
-        "to": 1000.0,
-        "values": []
-      }
-    },
-    {
       "aliases": [],
-      "attribute_id": "attr-332f54f132477f2e",
-      "attribute_name": "portSpeed",
-      "attribute_type": "integer",
-      "binding": {
-        "confidence": 1.0,
-        "entity_name": "UNI",
-        "evidence": "5.1 UNI Attributes",
-        "scope": "table_subject",
-        "structural_distance": 0
-      },
-      "cardinality": null,
-      "confidence": 1.0,
-      "default": "1000",
-      "description": "Physical port speed of the UNI",
-      "display_name": "Port Speed",
-      "entity": "UNI",
-      "evidence": [
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0007",
-          "end": null,
-          "start": null,
-          "text": "The UNI has a port speed of 1 Gbps."
-        },
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0009",
-          "end": null,
-          "start": null,
-          "text": "| Port Speed | Integer | Mbps | M | 10, 100, 1000, 10000 | 1000 | Physical port speed of the UNI |"
-        }
-      ],
-      "layer": "Resource",
-      "optionality": "M",
-      "origin": "spec_table",
-      "provenance": {
-        "bbox": [
-          54.0,
-          604.0,
-          558.0,
-          675.5
-        ],
-        "block_id": "blk-doc-c50fb00405a851a8-p1-0013",
-        "file": "telecom_spec.pdf",
-        "page": 1
-      },
-      "score": {
-        "clamped": 1.0,
-        "discard_reason": null,
-        "hits": [
-          {
-            "evidence": "\"Port Speed\" matches gazetteer entry \"Port Speed\"",
-            "name": "lexical.gazetteer_hit",
-            "weight": 0.15
-          },
-          {
-            "evidence": "head noun \"speed\" (from \"Port Speed\") is a property noun",
-            "name": "lexical.property_noun_head",
-            "weight": 0.2
-          },
-          {
-            "evidence": "heading \"5.1 UNI Attributes\" matches",
-            "name": "structural.attribute_heading",
-            "weight": 0.2
-          },
-          {
-            "evidence": "spec table header matched 6 categories",
-            "name": "structural.spec_table_row",
-            "weight": 0.45
-          },
-          {
-            "evidence": "optionality cell = \"M\"",
-            "name": "value_domain.cardinality_marker",
-            "weight": 0.15
-          },
-          {
-            "evidence": "range cell = \"10, 100, 1000, 10000\"",
-            "name": "value_domain.enum_range_default",
-            "weight": 0.15
-          },
-          {
-            "evidence": "type cell = \"Integer\"",
-            "name": "value_domain.typed_value",
-            "weight": 0.2
-          }
-        ],
-        "raw_sum": 1.5,
-        "route": "accept",
-        "short_circuit": true
-      },
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0009",
-      "source_document": "doc-c50fb00405a851a8",
-      "source_text": "| Port Speed | Integer | Mbps | M | 10, 100, 1000, 10000 | 1000 | Physical port speed of the UNI |",
-      "unit": {
-        "base": "bit/s",
-        "factor": 1000000.0,
-        "raw": "Mbps"
-      },
-      "value_domain": {
-        "from": null,
-        "kind": "enum",
-        "pattern": null,
-        "to": null,
-        "values": [
-          "10",
-          "100",
-          "1000",
-          "10000"
-        ]
-      }
-    },
-    {
-      "aliases": [
-        "Mobile Station International Subscriber Directory Number",
-        "mobile number"
-      ],
-      "attribute_id": "attr-4bfeb774c76f7e61",
-      "attribute_name": "msisdn",
-      "attribute_type": "identifier",
-      "binding": {
-        "confidence": 0.85,
-        "entity_name": "Subscriber",
-        "evidence": "Subscriber's MSISDN",
-        "scope": "syntactic",
-        "structural_distance": 0
-      },
-      "cardinality": null,
-      "confidence": 0.75,
-      "default": null,
-      "description": null,
-      "display_name": "MSISDN",
-      "entity": "Subscriber",
-      "evidence": [
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0010",
-          "end": null,
-          "start": null,
-          "text": "Each Subscriber SHALL have an IMSI and an MSISDN. The Subscriber's MSISDN is an E.164 number such as\n+447700900123."
-        }
-      ],
-      "layer": "Party",
-      "optionality": null,
-      "origin": "prose_regex",
-      "provenance": {
-        "bbox": [
-          60.0,
-          62.07,
-          552.0,
-          98.07
-        ],
-        "block_id": "blk-doc-c50fb00405a851a8-p2-0000",
-        "file": "telecom_spec.pdf",
-        "page": 2
-      },
-      "score": {
-        "clamped": 0.75,
-        "discard_reason": null,
-        "hits": [
-          {
-            "evidence": "\"MSISDN\" matches gazetteer entry \"MSISDN\"",
-            "name": "lexical.gazetteer_hit",
-            "weight": 0.15
-          },
-          {
-            "evidence": "head noun \"msisdn\" (from \"MSISDN\") is a property noun",
-            "name": "lexical.property_noun_head",
-            "weight": 0.2
-          },
-          {
-            "evidence": "genitive pattern binds to \"Subscriber\": \"Subscriber's MSISDN\"",
-            "name": "syntactic.binding_pattern",
-            "weight": 0.2
-          },
-          {
-            "evidence": "E.164 pattern matched \"+447700900123\"",
-            "name": "value_domain.typed_value",
-            "weight": 0.2
-          }
-        ],
-        "raw_sum": 0.75,
-        "route": "review",
-        "short_circuit": false
-      },
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0010",
-      "source_document": "doc-c50fb00405a851a8",
-      "source_text": "Each Subscriber SHALL have an IMSI and an MSISDN. The Subscriber's MSISDN is an E.164 number such as\n+447700900123.",
-      "unit": null,
-      "value_domain": null
-    },
-    {
-      "aliases": [
-        "EVC identifier"
-      ],
-      "attribute_id": "attr-75af9e452c565057",
-      "attribute_name": "evcId",
-      "attribute_type": "string",
-      "binding": {
-        "confidence": 1.0,
-        "entity_name": "EVC",
-        "evidence": "EVC Service Attributes",
-        "scope": "table_subject",
-        "structural_distance": 0
-      },
-      "cardinality": null,
-      "confidence": 1.0,
-      "default": null,
-      "description": "Unique identifier for the EVC assigned by the Service Provider",
-      "display_name": "EVC ID",
-      "entity": "EVC",
-      "evidence": [
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0005",
-          "end": null,
-          "start": null,
-          "text": "| EVC ID | String |  | M |  |  | Unique identifier for the EVC assigned by the Service Provider |"
-        }
-      ],
-      "layer": "CFS",
-      "optionality": "M",
-      "origin": "spec_table",
-      "provenance": {
-        "bbox": [
-          54.0,
-          353.2,
-          558.0,
-          484.2
-        ],
-        "block_id": "blk-doc-c50fb00405a851a8-p1-0008",
-        "file": "telecom_spec.pdf",
-        "page": 1
-      },
-      "score": {
-        "clamped": 1.0,
-        "discard_reason": null,
-        "hits": [
-          {
-            "evidence": "\"EVC ID\" matches gazetteer entry \"EVC ID\"",
-            "name": "lexical.gazetteer_hit",
-            "weight": 0.15
-          },
-          {
-            "evidence": "head noun \"id\" (from \"EVC ID\") is a property noun",
-            "name": "lexical.property_noun_head",
-            "weight": 0.2
-          },
-          {
-            "evidence": "heading \"4 Service Attributes\" matches",
-            "name": "structural.attribute_heading",
-            "weight": 0.2
-          },
-          {
-            "evidence": "spec table header matched 4 categories",
-            "name": "structural.spec_table_row",
-            "weight": 0.45
-          },
-          {
-            "evidence": "optionality cell = \"M\"",
-            "name": "value_domain.cardinality_marker",
-            "weight": 0.15
-          },
-          {
-            "evidence": "type cell = \"String\"",
-            "name": "value_domain.typed_value",
-            "weight": 0.2
-          }
-        ],
-        "raw_sum": 1.35,
-        "route": "accept",
-        "short_circuit": false
-      },
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0005",
-      "source_document": "doc-c50fb00405a851a8",
-      "source_text": "| EVC ID | String |  | M |  |  | Unique identifier for the EVC assigned by the Service Provider |",
-      "unit": null,
-      "value_domain": null
-    },
-    {
-      "aliases": [],
-      "attribute_id": "attr-97cf186c8477776b",
+      "attribute_id": "attr-17dfc0d487d26ba3",
       "attribute_name": "cosName",
       "attribute_type": "string",
       "binding": {
@@ -398,7 +20,7 @@
       "entity": "EVC",
       "evidence": [
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0005",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
           "end": null,
           "start": null,
           "text": "| CoS Name | String |  | O |  | Standard | Class of Service name applied to the EVC |"
@@ -414,7 +36,7 @@
           558.0,
           484.2
         ],
-        "block_id": "blk-doc-c50fb00405a851a8-p1-0008",
+        "block_id": "blk-doc-c50fb00405a851a8-p0001-0008",
         "file": "telecom_spec.pdf",
         "page": 1
       },
@@ -462,376 +84,9 @@
         "route": "accept",
         "short_circuit": true
       },
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0005",
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0005",
       "source_document": "doc-c50fb00405a851a8",
       "source_text": "| CoS Name | String |  | O |  | Standard | Class of Service name applied to the EVC |",
-      "unit": null,
-      "value_domain": null
-    },
-    {
-      "aliases": [],
-      "attribute_id": "attr-9ac494efe4179eeb",
-      "attribute_name": "serviceType",
-      "attribute_type": "enum",
-      "binding": {
-        "confidence": 1.0,
-        "entity_name": "EVC",
-        "evidence": "EVC Service Attributes",
-        "scope": "table_subject",
-        "structural_distance": 0
-      },
-      "cardinality": null,
-      "confidence": 1.0,
-      "default": "Point-to-Point",
-      "description": "Connectivity type of the EVC",
-      "display_name": "Service Type",
-      "entity": "EVC",
-      "evidence": [
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0005",
-          "end": null,
-          "start": null,
-          "text": "| Service Type | Enum |  | M | Point-to-Point, Multipoint-to-Multipoint | Point-to-Point | Connectivity type of the EVC |"
-        }
-      ],
-      "layer": "CFS",
-      "optionality": "M",
-      "origin": "spec_table",
-      "provenance": {
-        "bbox": [
-          54.0,
-          353.2,
-          558.0,
-          484.2
-        ],
-        "block_id": "blk-doc-c50fb00405a851a8-p1-0008",
-        "file": "telecom_spec.pdf",
-        "page": 1
-      },
-      "score": {
-        "clamped": 1.0,
-        "discard_reason": null,
-        "hits": [
-          {
-            "evidence": "\"Service Type\" matches gazetteer entry \"Service Type\"",
-            "name": "lexical.gazetteer_hit",
-            "weight": 0.15
-          },
-          {
-            "evidence": "head noun \"type\" (from \"Service Type\") is a property noun",
-            "name": "lexical.property_noun_head",
-            "weight": 0.2
-          },
-          {
-            "evidence": "heading \"4 Service Attributes\" matches",
-            "name": "structural.attribute_heading",
-            "weight": 0.2
-          },
-          {
-            "evidence": "spec table header matched 5 categories",
-            "name": "structural.spec_table_row",
-            "weight": 0.45
-          },
-          {
-            "evidence": "optionality cell = \"M\"",
-            "name": "value_domain.cardinality_marker",
-            "weight": 0.15
-          },
-          {
-            "evidence": "range cell = \"Point-to-Point, Multipoint-to-Multipoint\"",
-            "name": "value_domain.enum_range_default",
-            "weight": 0.15
-          },
-          {
-            "evidence": "type cell = \"Enum\"",
-            "name": "value_domain.typed_value",
-            "weight": 0.2
-          }
-        ],
-        "raw_sum": 1.5,
-        "route": "accept",
-        "short_circuit": true
-      },
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0005",
-      "source_document": "doc-c50fb00405a851a8",
-      "source_text": "| Service Type | Enum |  | M | Point-to-Point, Multipoint-to-Multipoint | Point-to-Point | Connectivity type of the EVC |",
-      "unit": null,
-      "value_domain": {
-        "from": null,
-        "kind": "enum",
-        "pattern": null,
-        "to": null,
-        "values": [
-          "Point-to-Point",
-          "Multipoint-to-Multipoint"
-        ]
-      }
-    },
-    {
-      "aliases": [],
-      "attribute_id": "attr-a5788ff894afcb40",
-      "attribute_name": "physicalMedium",
-      "attribute_type": "enum",
-      "binding": {
-        "confidence": 1.0,
-        "entity_name": "UNI",
-        "evidence": "5.1 UNI Attributes",
-        "scope": "table_subject",
-        "structural_distance": 0
-      },
-      "cardinality": null,
-      "confidence": 1.0,
-      "default": "Fibre",
-      "description": "Physical medium of the UNI",
-      "display_name": "Physical Medium",
-      "entity": "UNI",
-      "evidence": [
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0007",
-          "end": null,
-          "start": null,
-          "text": "Each UNI SHALL have a physical medium and a MAC address."
-        },
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0009",
-          "end": null,
-          "start": null,
-          "text": "| Physical Medium | Enum |  | M | Copper, Fibre | Fibre | Physical medium of the UNI |"
-        }
-      ],
-      "layer": "Resource",
-      "optionality": "M",
-      "origin": "spec_table",
-      "provenance": {
-        "bbox": [
-          54.0,
-          604.0,
-          558.0,
-          675.5
-        ],
-        "block_id": "blk-doc-c50fb00405a851a8-p1-0013",
-        "file": "telecom_spec.pdf",
-        "page": 1
-      },
-      "score": {
-        "clamped": 1.0,
-        "discard_reason": null,
-        "hits": [
-          {
-            "evidence": "\"Physical Medium\" matches gazetteer entry \"Physical Medium\"",
-            "name": "lexical.gazetteer_hit",
-            "weight": 0.15
-          },
-          {
-            "evidence": "head noun \"medium\" (from \"Physical Medium\") is a property noun",
-            "name": "lexical.property_noun_head",
-            "weight": 0.2
-          },
-          {
-            "evidence": "heading \"5.1 UNI Attributes\" matches",
-            "name": "structural.attribute_heading",
-            "weight": 0.2
-          },
-          {
-            "evidence": "spec table header matched 5 categories",
-            "name": "structural.spec_table_row",
-            "weight": 0.45
-          },
-          {
-            "evidence": "optionality cell = \"M\"",
-            "name": "value_domain.cardinality_marker",
-            "weight": 0.15
-          },
-          {
-            "evidence": "range cell = \"Copper, Fibre\"",
-            "name": "value_domain.enum_range_default",
-            "weight": 0.15
-          },
-          {
-            "evidence": "type cell = \"Enum\"",
-            "name": "value_domain.typed_value",
-            "weight": 0.2
-          }
-        ],
-        "raw_sum": 1.5,
-        "route": "accept",
-        "short_circuit": true
-      },
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0009",
-      "source_document": "doc-c50fb00405a851a8",
-      "source_text": "| Physical Medium | Enum |  | M | Copper, Fibre | Fibre | Physical medium of the UNI |",
-      "unit": null,
-      "value_domain": {
-        "from": null,
-        "kind": "enum",
-        "pattern": null,
-        "to": null,
-        "values": [
-          "Copper",
-          "Fibre"
-        ]
-      }
-    },
-    {
-      "aliases": [],
-      "attribute_id": "attr-b96a0ea5e87e99dc",
-      "attribute_name": "macAddress",
-      "attribute_type": "string",
-      "binding": {
-        "confidence": 1.0,
-        "entity_name": "UNI",
-        "evidence": "5.1 UNI Attributes",
-        "scope": "table_subject",
-        "structural_distance": 0
-      },
-      "cardinality": null,
-      "confidence": 1.0,
-      "default": null,
-      "description": "MAC address of the UNI port",
-      "display_name": "MAC Address",
-      "entity": "UNI",
-      "evidence": [
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0007",
-          "end": null,
-          "start": null,
-          "text": "Each UNI SHALL have a physical medium and a MAC address."
-        },
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0009",
-          "end": null,
-          "start": null,
-          "text": "| MAC Address | String |  | M |  |  | MAC address of the UNI port |"
-        }
-      ],
-      "layer": "Resource",
-      "optionality": "M",
-      "origin": "spec_table",
-      "provenance": {
-        "bbox": [
-          54.0,
-          604.0,
-          558.0,
-          675.5
-        ],
-        "block_id": "blk-doc-c50fb00405a851a8-p1-0013",
-        "file": "telecom_spec.pdf",
-        "page": 1
-      },
-      "score": {
-        "clamped": 1.0,
-        "discard_reason": null,
-        "hits": [
-          {
-            "evidence": "\"MAC Address\" matches gazetteer entry \"MAC Address\"",
-            "name": "lexical.gazetteer_hit",
-            "weight": 0.15
-          },
-          {
-            "evidence": "head noun \"address\" (from \"MAC Address\") is a property noun",
-            "name": "lexical.property_noun_head",
-            "weight": 0.2
-          },
-          {
-            "evidence": "heading \"5.1 UNI Attributes\" matches",
-            "name": "structural.attribute_heading",
-            "weight": 0.2
-          },
-          {
-            "evidence": "spec table header matched 4 categories",
-            "name": "structural.spec_table_row",
-            "weight": 0.45
-          },
-          {
-            "evidence": "optionality cell = \"M\"",
-            "name": "value_domain.cardinality_marker",
-            "weight": 0.15
-          },
-          {
-            "evidence": "type cell = \"String\"",
-            "name": "value_domain.typed_value",
-            "weight": 0.2
-          }
-        ],
-        "raw_sum": 1.35,
-        "route": "accept",
-        "short_circuit": false
-      },
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0009",
-      "source_document": "doc-c50fb00405a851a8",
-      "source_text": "| MAC Address | String |  | M |  |  | MAC address of the UNI port |",
-      "unit": null,
-      "value_domain": null
-    },
-    {
-      "aliases": [
-        "International Mobile Subscriber Identity"
-      ],
-      "attribute_id": "attr-be235a54857e1eea",
-      "attribute_name": "imsi",
-      "attribute_type": "identifier",
-      "binding": {
-        "confidence": 0.85,
-        "entity_name": "Subscriber",
-        "evidence": "Each Subscriber SHALL have an IMSI and an MSISDN",
-        "scope": "syntactic",
-        "structural_distance": 0
-      },
-      "cardinality": null,
-      "confidence": 0.55,
-      "default": null,
-      "description": null,
-      "display_name": "IMSI",
-      "entity": "Subscriber",
-      "evidence": [
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0010",
-          "end": null,
-          "start": null,
-          "text": "Each Subscriber SHALL have an IMSI and an MSISDN."
-        }
-      ],
-      "layer": "Party",
-      "optionality": null,
-      "origin": "prose_regex",
-      "provenance": {
-        "bbox": [
-          60.0,
-          62.07,
-          552.0,
-          98.07
-        ],
-        "block_id": "blk-doc-c50fb00405a851a8-p2-0000",
-        "file": "telecom_spec.pdf",
-        "page": 2
-      },
-      "score": {
-        "clamped": 0.55,
-        "discard_reason": null,
-        "hits": [
-          {
-            "evidence": "\"IMSI\" matches gazetteer entry \"IMSI\"",
-            "name": "lexical.gazetteer_hit",
-            "weight": 0.15
-          },
-          {
-            "evidence": "head noun \"imsi\" (from \"IMSI\") is a property noun",
-            "name": "lexical.property_noun_head",
-            "weight": 0.2
-          },
-          {
-            "evidence": "rfc2119 pattern binds to \"Subscriber\": \"Each Subscriber SHALL have an IMSI and an MSISDN\"",
-            "name": "syntactic.binding_pattern",
-            "weight": 0.2
-          }
-        ],
-        "raw_sum": 0.55,
-        "route": "review",
-        "short_circuit": false
-      },
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0010",
-      "source_document": "doc-c50fb00405a851a8",
-      "source_text": "Each Subscriber SHALL have an IMSI and an MSISDN.",
       "unit": null,
       "value_domain": null
     },
@@ -839,7 +94,7 @@
       "aliases": [
         "Committed Information Rate"
       ],
-      "attribute_id": "attr-f64a4ff4d45ae720",
+      "attribute_id": "attr-2290c7e61a90b9f7",
       "attribute_name": "cir",
       "attribute_type": "integer",
       "binding": {
@@ -857,7 +112,7 @@
       "entity": "EVC",
       "evidence": [
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0005",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
           "end": null,
           "start": null,
           "text": "| CIR | Integer | Mbps | M | 10–1000 | 100 | Committed Information Rate for the EVC |"
@@ -873,7 +128,7 @@
           558.0,
           484.2
         ],
-        "block_id": "blk-doc-c50fb00405a851a8-p1-0008",
+        "block_id": "blk-doc-c50fb00405a851a8-p0001-0008",
         "file": "telecom_spec.pdf",
         "page": 1
       },
@@ -921,7 +176,7 @@
         "route": "accept",
         "short_circuit": true
       },
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0005",
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0005",
       "source_document": "doc-c50fb00405a851a8",
       "source_text": "| CIR | Integer | Mbps | M | 10–1000 | 100 | Committed Information Rate for the EVC |",
       "unit": {
@@ -935,6 +190,751 @@
         "pattern": null,
         "to": 1000.0,
         "values": []
+      }
+    },
+    {
+      "aliases": [
+        "Excess Information Rate"
+      ],
+      "attribute_id": "attr-2814e568f093ca77",
+      "attribute_name": "eir",
+      "attribute_type": "integer",
+      "binding": {
+        "confidence": 1.0,
+        "entity_name": "EVC",
+        "evidence": "EVC Service Attributes",
+        "scope": "table_subject",
+        "structural_distance": 0
+      },
+      "cardinality": null,
+      "confidence": 1.0,
+      "default": "0",
+      "description": "Excess Information Rate for the EVC",
+      "display_name": "EIR",
+      "entity": "EVC",
+      "evidence": [
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
+          "end": null,
+          "start": null,
+          "text": "| EIR | Integer | Mbps | O | 0–1000 | 0 | Excess Information Rate for the EVC |"
+        }
+      ],
+      "layer": "CFS",
+      "optionality": "O",
+      "origin": "spec_table",
+      "provenance": {
+        "bbox": [
+          54.0,
+          353.2,
+          558.0,
+          484.2
+        ],
+        "block_id": "blk-doc-c50fb00405a851a8-p0001-0008",
+        "file": "telecom_spec.pdf",
+        "page": 1
+      },
+      "score": {
+        "clamped": 1.0,
+        "discard_reason": null,
+        "hits": [
+          {
+            "evidence": "\"EIR\" matches gazetteer entry \"EIR\"",
+            "name": "lexical.gazetteer_hit",
+            "weight": 0.15
+          },
+          {
+            "evidence": "head noun \"rate\" (from \"Excess Information Rate\") is a property noun",
+            "name": "lexical.property_noun_head",
+            "weight": 0.2
+          },
+          {
+            "evidence": "heading \"4 Service Attributes\" matches",
+            "name": "structural.attribute_heading",
+            "weight": 0.2
+          },
+          {
+            "evidence": "spec table header matched 6 categories",
+            "name": "structural.spec_table_row",
+            "weight": 0.45
+          },
+          {
+            "evidence": "optionality cell = \"O\"",
+            "name": "value_domain.cardinality_marker",
+            "weight": 0.15
+          },
+          {
+            "evidence": "range cell = \"0–1000\"",
+            "name": "value_domain.enum_range_default",
+            "weight": 0.15
+          },
+          {
+            "evidence": "type cell = \"Integer\"",
+            "name": "value_domain.typed_value",
+            "weight": 0.2
+          }
+        ],
+        "raw_sum": 1.5,
+        "route": "accept",
+        "short_circuit": true
+      },
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0005",
+      "source_document": "doc-c50fb00405a851a8",
+      "source_text": "| EIR | Integer | Mbps | O | 0–1000 | 0 | Excess Information Rate for the EVC |",
+      "unit": {
+        "base": "bit/s",
+        "factor": 1000000.0,
+        "raw": "Mbps"
+      },
+      "value_domain": {
+        "from": 0.0,
+        "kind": "range",
+        "pattern": null,
+        "to": 1000.0,
+        "values": []
+      }
+    },
+    {
+      "aliases": [
+        "EVC identifier"
+      ],
+      "attribute_id": "attr-64146aaa100ad239",
+      "attribute_name": "evcId",
+      "attribute_type": "string",
+      "binding": {
+        "confidence": 1.0,
+        "entity_name": "EVC",
+        "evidence": "EVC Service Attributes",
+        "scope": "table_subject",
+        "structural_distance": 0
+      },
+      "cardinality": null,
+      "confidence": 1.0,
+      "default": null,
+      "description": "Unique identifier for the EVC assigned by the Service Provider",
+      "display_name": "EVC ID",
+      "entity": "EVC",
+      "evidence": [
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
+          "end": null,
+          "start": null,
+          "text": "| EVC ID | String |  | M |  |  | Unique identifier for the EVC assigned by the Service Provider |"
+        }
+      ],
+      "layer": "CFS",
+      "optionality": "M",
+      "origin": "spec_table",
+      "provenance": {
+        "bbox": [
+          54.0,
+          353.2,
+          558.0,
+          484.2
+        ],
+        "block_id": "blk-doc-c50fb00405a851a8-p0001-0008",
+        "file": "telecom_spec.pdf",
+        "page": 1
+      },
+      "score": {
+        "clamped": 1.0,
+        "discard_reason": null,
+        "hits": [
+          {
+            "evidence": "\"EVC ID\" matches gazetteer entry \"EVC ID\"",
+            "name": "lexical.gazetteer_hit",
+            "weight": 0.15
+          },
+          {
+            "evidence": "head noun \"id\" (from \"EVC ID\") is a property noun",
+            "name": "lexical.property_noun_head",
+            "weight": 0.2
+          },
+          {
+            "evidence": "heading \"4 Service Attributes\" matches",
+            "name": "structural.attribute_heading",
+            "weight": 0.2
+          },
+          {
+            "evidence": "spec table header matched 4 categories",
+            "name": "structural.spec_table_row",
+            "weight": 0.45
+          },
+          {
+            "evidence": "optionality cell = \"M\"",
+            "name": "value_domain.cardinality_marker",
+            "weight": 0.15
+          },
+          {
+            "evidence": "type cell = \"String\"",
+            "name": "value_domain.typed_value",
+            "weight": 0.2
+          }
+        ],
+        "raw_sum": 1.35,
+        "route": "accept",
+        "short_circuit": false
+      },
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0005",
+      "source_document": "doc-c50fb00405a851a8",
+      "source_text": "| EVC ID | String |  | M |  |  | Unique identifier for the EVC assigned by the Service Provider |",
+      "unit": null,
+      "value_domain": null
+    },
+    {
+      "aliases": [
+        "International Mobile Subscriber Identity"
+      ],
+      "attribute_id": "attr-9ab30bfc2184cba1",
+      "attribute_name": "imsi",
+      "attribute_type": "identifier",
+      "binding": {
+        "confidence": 0.85,
+        "entity_name": "Subscriber",
+        "evidence": "Each Subscriber SHALL have an IMSI and an MSISDN",
+        "scope": "syntactic",
+        "structural_distance": 0
+      },
+      "cardinality": null,
+      "confidence": 0.55,
+      "default": null,
+      "description": null,
+      "display_name": "IMSI",
+      "entity": "Subscriber",
+      "evidence": [
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0010",
+          "end": null,
+          "start": null,
+          "text": "Each Subscriber SHALL have an IMSI and an MSISDN."
+        }
+      ],
+      "layer": "Party",
+      "optionality": null,
+      "origin": "prose_regex",
+      "provenance": {
+        "bbox": [
+          60.0,
+          62.07,
+          552.0,
+          98.07
+        ],
+        "block_id": "blk-doc-c50fb00405a851a8-p0002-0000",
+        "file": "telecom_spec.pdf",
+        "page": 2
+      },
+      "score": {
+        "clamped": 0.55,
+        "discard_reason": null,
+        "hits": [
+          {
+            "evidence": "\"IMSI\" matches gazetteer entry \"IMSI\"",
+            "name": "lexical.gazetteer_hit",
+            "weight": 0.15
+          },
+          {
+            "evidence": "head noun \"imsi\" (from \"IMSI\") is a property noun",
+            "name": "lexical.property_noun_head",
+            "weight": 0.2
+          },
+          {
+            "evidence": "rfc2119 pattern binds to \"Subscriber\": \"Each Subscriber SHALL have an IMSI and an MSISDN\"",
+            "name": "syntactic.binding_pattern",
+            "weight": 0.2
+          }
+        ],
+        "raw_sum": 0.55,
+        "route": "review",
+        "short_circuit": false
+      },
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0010",
+      "source_document": "doc-c50fb00405a851a8",
+      "source_text": "Each Subscriber SHALL have an IMSI and an MSISDN.",
+      "unit": null,
+      "value_domain": null
+    },
+    {
+      "aliases": [
+        "Mobile Station International Subscriber Directory Number",
+        "mobile number"
+      ],
+      "attribute_id": "attr-a02bbe44515e6e48",
+      "attribute_name": "msisdn",
+      "attribute_type": "identifier",
+      "binding": {
+        "confidence": 0.85,
+        "entity_name": "Subscriber",
+        "evidence": "Subscriber's MSISDN",
+        "scope": "syntactic",
+        "structural_distance": 0
+      },
+      "cardinality": null,
+      "confidence": 0.75,
+      "default": null,
+      "description": null,
+      "display_name": "MSISDN",
+      "entity": "Subscriber",
+      "evidence": [
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0010",
+          "end": null,
+          "start": null,
+          "text": "Each Subscriber SHALL have an IMSI and an MSISDN. The Subscriber's MSISDN is an E.164 number such as\n+447700900123."
+        }
+      ],
+      "layer": "Party",
+      "optionality": null,
+      "origin": "prose_regex",
+      "provenance": {
+        "bbox": [
+          60.0,
+          62.07,
+          552.0,
+          98.07
+        ],
+        "block_id": "blk-doc-c50fb00405a851a8-p0002-0000",
+        "file": "telecom_spec.pdf",
+        "page": 2
+      },
+      "score": {
+        "clamped": 0.75,
+        "discard_reason": null,
+        "hits": [
+          {
+            "evidence": "\"MSISDN\" matches gazetteer entry \"MSISDN\"",
+            "name": "lexical.gazetteer_hit",
+            "weight": 0.15
+          },
+          {
+            "evidence": "head noun \"msisdn\" (from \"MSISDN\") is a property noun",
+            "name": "lexical.property_noun_head",
+            "weight": 0.2
+          },
+          {
+            "evidence": "genitive pattern binds to \"Subscriber\": \"Subscriber's MSISDN\"",
+            "name": "syntactic.binding_pattern",
+            "weight": 0.2
+          },
+          {
+            "evidence": "E.164 pattern matched \"+447700900123\"",
+            "name": "value_domain.typed_value",
+            "weight": 0.2
+          }
+        ],
+        "raw_sum": 0.75,
+        "route": "review",
+        "short_circuit": false
+      },
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0010",
+      "source_document": "doc-c50fb00405a851a8",
+      "source_text": "Each Subscriber SHALL have an IMSI and an MSISDN. The Subscriber's MSISDN is an E.164 number such as\n+447700900123.",
+      "unit": null,
+      "value_domain": null
+    },
+    {
+      "aliases": [],
+      "attribute_id": "attr-bc11468d6115903a",
+      "attribute_name": "portSpeed",
+      "attribute_type": "integer",
+      "binding": {
+        "confidence": 1.0,
+        "entity_name": "UNI",
+        "evidence": "5.1 UNI Attributes",
+        "scope": "table_subject",
+        "structural_distance": 0
+      },
+      "cardinality": null,
+      "confidence": 1.0,
+      "default": "1000",
+      "description": "Physical port speed of the UNI",
+      "display_name": "Port Speed",
+      "entity": "UNI",
+      "evidence": [
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0007",
+          "end": null,
+          "start": null,
+          "text": "The UNI has a port speed of 1 Gbps."
+        },
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0009",
+          "end": null,
+          "start": null,
+          "text": "| Port Speed | Integer | Mbps | M | 10, 100, 1000, 10000 | 1000 | Physical port speed of the UNI |"
+        }
+      ],
+      "layer": "Resource",
+      "optionality": "M",
+      "origin": "spec_table",
+      "provenance": {
+        "bbox": [
+          54.0,
+          604.0,
+          558.0,
+          675.5
+        ],
+        "block_id": "blk-doc-c50fb00405a851a8-p0001-0013",
+        "file": "telecom_spec.pdf",
+        "page": 1
+      },
+      "score": {
+        "clamped": 1.0,
+        "discard_reason": null,
+        "hits": [
+          {
+            "evidence": "\"Port Speed\" matches gazetteer entry \"Port Speed\"",
+            "name": "lexical.gazetteer_hit",
+            "weight": 0.15
+          },
+          {
+            "evidence": "head noun \"speed\" (from \"Port Speed\") is a property noun",
+            "name": "lexical.property_noun_head",
+            "weight": 0.2
+          },
+          {
+            "evidence": "heading \"5.1 UNI Attributes\" matches",
+            "name": "structural.attribute_heading",
+            "weight": 0.2
+          },
+          {
+            "evidence": "spec table header matched 6 categories",
+            "name": "structural.spec_table_row",
+            "weight": 0.45
+          },
+          {
+            "evidence": "optionality cell = \"M\"",
+            "name": "value_domain.cardinality_marker",
+            "weight": 0.15
+          },
+          {
+            "evidence": "range cell = \"10, 100, 1000, 10000\"",
+            "name": "value_domain.enum_range_default",
+            "weight": 0.15
+          },
+          {
+            "evidence": "type cell = \"Integer\"",
+            "name": "value_domain.typed_value",
+            "weight": 0.2
+          }
+        ],
+        "raw_sum": 1.5,
+        "route": "accept",
+        "short_circuit": true
+      },
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0009",
+      "source_document": "doc-c50fb00405a851a8",
+      "source_text": "| Port Speed | Integer | Mbps | M | 10, 100, 1000, 10000 | 1000 | Physical port speed of the UNI |",
+      "unit": {
+        "base": "bit/s",
+        "factor": 1000000.0,
+        "raw": "Mbps"
+      },
+      "value_domain": {
+        "from": null,
+        "kind": "enum",
+        "pattern": null,
+        "to": null,
+        "values": [
+          "10",
+          "100",
+          "1000",
+          "10000"
+        ]
+      }
+    },
+    {
+      "aliases": [],
+      "attribute_id": "attr-d8a4b43dc8a91115",
+      "attribute_name": "macAddress",
+      "attribute_type": "string",
+      "binding": {
+        "confidence": 1.0,
+        "entity_name": "UNI",
+        "evidence": "5.1 UNI Attributes",
+        "scope": "table_subject",
+        "structural_distance": 0
+      },
+      "cardinality": null,
+      "confidence": 1.0,
+      "default": null,
+      "description": "MAC address of the UNI port",
+      "display_name": "MAC Address",
+      "entity": "UNI",
+      "evidence": [
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0007",
+          "end": null,
+          "start": null,
+          "text": "Each UNI SHALL have a physical medium and a MAC address."
+        },
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0009",
+          "end": null,
+          "start": null,
+          "text": "| MAC Address | String |  | M |  |  | MAC address of the UNI port |"
+        }
+      ],
+      "layer": "Resource",
+      "optionality": "M",
+      "origin": "spec_table",
+      "provenance": {
+        "bbox": [
+          54.0,
+          604.0,
+          558.0,
+          675.5
+        ],
+        "block_id": "blk-doc-c50fb00405a851a8-p0001-0013",
+        "file": "telecom_spec.pdf",
+        "page": 1
+      },
+      "score": {
+        "clamped": 1.0,
+        "discard_reason": null,
+        "hits": [
+          {
+            "evidence": "\"MAC Address\" matches gazetteer entry \"MAC Address\"",
+            "name": "lexical.gazetteer_hit",
+            "weight": 0.15
+          },
+          {
+            "evidence": "head noun \"address\" (from \"MAC Address\") is a property noun",
+            "name": "lexical.property_noun_head",
+            "weight": 0.2
+          },
+          {
+            "evidence": "heading \"5.1 UNI Attributes\" matches",
+            "name": "structural.attribute_heading",
+            "weight": 0.2
+          },
+          {
+            "evidence": "spec table header matched 4 categories",
+            "name": "structural.spec_table_row",
+            "weight": 0.45
+          },
+          {
+            "evidence": "optionality cell = \"M\"",
+            "name": "value_domain.cardinality_marker",
+            "weight": 0.15
+          },
+          {
+            "evidence": "type cell = \"String\"",
+            "name": "value_domain.typed_value",
+            "weight": 0.2
+          }
+        ],
+        "raw_sum": 1.35,
+        "route": "accept",
+        "short_circuit": false
+      },
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0009",
+      "source_document": "doc-c50fb00405a851a8",
+      "source_text": "| MAC Address | String |  | M |  |  | MAC address of the UNI port |",
+      "unit": null,
+      "value_domain": null
+    },
+    {
+      "aliases": [],
+      "attribute_id": "attr-f17dcac1322fe857",
+      "attribute_name": "physicalMedium",
+      "attribute_type": "enum",
+      "binding": {
+        "confidence": 1.0,
+        "entity_name": "UNI",
+        "evidence": "5.1 UNI Attributes",
+        "scope": "table_subject",
+        "structural_distance": 0
+      },
+      "cardinality": null,
+      "confidence": 1.0,
+      "default": "Fibre",
+      "description": "Physical medium of the UNI",
+      "display_name": "Physical Medium",
+      "entity": "UNI",
+      "evidence": [
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0007",
+          "end": null,
+          "start": null,
+          "text": "Each UNI SHALL have a physical medium and a MAC address."
+        },
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0009",
+          "end": null,
+          "start": null,
+          "text": "| Physical Medium | Enum |  | M | Copper, Fibre | Fibre | Physical medium of the UNI |"
+        }
+      ],
+      "layer": "Resource",
+      "optionality": "M",
+      "origin": "spec_table",
+      "provenance": {
+        "bbox": [
+          54.0,
+          604.0,
+          558.0,
+          675.5
+        ],
+        "block_id": "blk-doc-c50fb00405a851a8-p0001-0013",
+        "file": "telecom_spec.pdf",
+        "page": 1
+      },
+      "score": {
+        "clamped": 1.0,
+        "discard_reason": null,
+        "hits": [
+          {
+            "evidence": "\"Physical Medium\" matches gazetteer entry \"Physical Medium\"",
+            "name": "lexical.gazetteer_hit",
+            "weight": 0.15
+          },
+          {
+            "evidence": "head noun \"medium\" (from \"Physical Medium\") is a property noun",
+            "name": "lexical.property_noun_head",
+            "weight": 0.2
+          },
+          {
+            "evidence": "heading \"5.1 UNI Attributes\" matches",
+            "name": "structural.attribute_heading",
+            "weight": 0.2
+          },
+          {
+            "evidence": "spec table header matched 5 categories",
+            "name": "structural.spec_table_row",
+            "weight": 0.45
+          },
+          {
+            "evidence": "optionality cell = \"M\"",
+            "name": "value_domain.cardinality_marker",
+            "weight": 0.15
+          },
+          {
+            "evidence": "range cell = \"Copper, Fibre\"",
+            "name": "value_domain.enum_range_default",
+            "weight": 0.15
+          },
+          {
+            "evidence": "type cell = \"Enum\"",
+            "name": "value_domain.typed_value",
+            "weight": 0.2
+          }
+        ],
+        "raw_sum": 1.5,
+        "route": "accept",
+        "short_circuit": true
+      },
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0009",
+      "source_document": "doc-c50fb00405a851a8",
+      "source_text": "| Physical Medium | Enum |  | M | Copper, Fibre | Fibre | Physical medium of the UNI |",
+      "unit": null,
+      "value_domain": {
+        "from": null,
+        "kind": "enum",
+        "pattern": null,
+        "to": null,
+        "values": [
+          "Copper",
+          "Fibre"
+        ]
+      }
+    },
+    {
+      "aliases": [],
+      "attribute_id": "attr-fd8f09872cbba5a3",
+      "attribute_name": "serviceType",
+      "attribute_type": "enum",
+      "binding": {
+        "confidence": 1.0,
+        "entity_name": "EVC",
+        "evidence": "EVC Service Attributes",
+        "scope": "table_subject",
+        "structural_distance": 0
+      },
+      "cardinality": null,
+      "confidence": 1.0,
+      "default": "Point-to-Point",
+      "description": "Connectivity type of the EVC",
+      "display_name": "Service Type",
+      "entity": "EVC",
+      "evidence": [
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
+          "end": null,
+          "start": null,
+          "text": "| Service Type | Enum |  | M | Point-to-Point, Multipoint-to-Multipoint | Point-to-Point | Connectivity type of the EVC |"
+        }
+      ],
+      "layer": "CFS",
+      "optionality": "M",
+      "origin": "spec_table",
+      "provenance": {
+        "bbox": [
+          54.0,
+          353.2,
+          558.0,
+          484.2
+        ],
+        "block_id": "blk-doc-c50fb00405a851a8-p0001-0008",
+        "file": "telecom_spec.pdf",
+        "page": 1
+      },
+      "score": {
+        "clamped": 1.0,
+        "discard_reason": null,
+        "hits": [
+          {
+            "evidence": "\"Service Type\" matches gazetteer entry \"Service Type\"",
+            "name": "lexical.gazetteer_hit",
+            "weight": 0.15
+          },
+          {
+            "evidence": "head noun \"type\" (from \"Service Type\") is a property noun",
+            "name": "lexical.property_noun_head",
+            "weight": 0.2
+          },
+          {
+            "evidence": "heading \"4 Service Attributes\" matches",
+            "name": "structural.attribute_heading",
+            "weight": 0.2
+          },
+          {
+            "evidence": "spec table header matched 5 categories",
+            "name": "structural.spec_table_row",
+            "weight": 0.45
+          },
+          {
+            "evidence": "optionality cell = \"M\"",
+            "name": "value_domain.cardinality_marker",
+            "weight": 0.15
+          },
+          {
+            "evidence": "range cell = \"Point-to-Point, Multipoint-to-Multipoint\"",
+            "name": "value_domain.enum_range_default",
+            "weight": 0.15
+          },
+          {
+            "evidence": "type cell = \"Enum\"",
+            "name": "value_domain.typed_value",
+            "weight": 0.2
+          }
+        ],
+        "raw_sum": 1.5,
+        "route": "accept",
+        "short_circuit": true
+      },
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0005",
+      "source_document": "doc-c50fb00405a851a8",
+      "source_text": "| Service Type | Enum |  | M | Point-to-Point, Multipoint-to-Multipoint | Point-to-Point | Connectivity type of the EVC |",
+      "unit": null,
+      "value_domain": {
+        "from": null,
+        "kind": "enum",
+        "pattern": null,
+        "to": null,
+        "values": [
+          "Point-to-Point",
+          "Multipoint-to-Multipoint"
+        ]
       }
     }
   ],
@@ -968,43 +968,43 @@
       ],
       "normalized_name": "subscriber",
       "source_attributes": [
-        "attr-4bfeb774c76f7e61",
-        "attr-be235a54857e1eea"
+        "attr-9ab30bfc2184cba1",
+        "attr-a02bbe44515e6e48"
       ],
       "source_chunks": [
-        "chunk-doc-c50fb00405a851a8-p1-0002",
-        "chunk-doc-c50fb00405a851a8-p1-0010"
+        "chunk-doc-c50fb00405a851a8-p0001-0002",
+        "chunk-doc-c50fb00405a851a8-p0001-0010"
       ],
       "supporting_evidence": [
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0002",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0002",
           "end": null,
           "start": null,
           "text": "Subscriber"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0002",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0002",
           "end": null,
           "start": null,
           "text": "This document specifies the service attributes of an Ethernet Virtual Connection (EVC) delivered by a Service\nProvider to a Subscriber."
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0010",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0010",
+          "end": null,
+          "start": null,
+          "text": "Each Subscriber SHALL have an IMSI and an MSISDN"
+        },
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0010",
           "end": null,
           "start": null,
           "text": "Each Subscriber SHALL have an IMSI and an MSISDN. The Subscriber's MSISDN is an E.164 number such as\n+447700900123."
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0010",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0010",
           "end": null,
           "start": null,
           "text": "Subscriber"
-        },
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0010",
-          "end": null,
-          "start": null,
-          "text": "Subscriber's MSISDN"
         }
       ]
     },
@@ -1020,32 +1020,32 @@
       "normalized_name": "service provider",
       "source_attributes": [],
       "source_chunks": [
-        "chunk-doc-c50fb00405a851a8-p1-0002",
-        "chunk-doc-c50fb00405a851a8-p1-0005",
-        "chunk-doc-c50fb00405a851a8-p1-0010",
-        "chunk-doc-c50fb00405a851a8-p2-0000"
+        "chunk-doc-c50fb00405a851a8-p0001-0002",
+        "chunk-doc-c50fb00405a851a8-p0001-0005",
+        "chunk-doc-c50fb00405a851a8-p0001-0010",
+        "chunk-doc-c50fb00405a851a8-p0002-0000"
       ],
       "supporting_evidence": [
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0002",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0002",
           "end": null,
           "start": null,
           "text": "Provider"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0005",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
           "end": null,
           "start": null,
           "text": "Service Provider"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0010",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0010",
           "end": null,
           "start": null,
           "text": "operator"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p2-0000",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0002-0000",
           "end": null,
           "start": null,
           "text": "Service Provider"
@@ -1063,64 +1063,64 @@
       ],
       "normalized_name": "evc",
       "source_attributes": [
-        "attr-01cb268053ce82c5",
-        "attr-75af9e452c565057",
-        "attr-97cf186c8477776b",
-        "attr-9ac494efe4179eeb",
-        "attr-f64a4ff4d45ae720"
+        "attr-17dfc0d487d26ba3",
+        "attr-2290c7e61a90b9f7",
+        "attr-2814e568f093ca77",
+        "attr-64146aaa100ad239",
+        "attr-fd8f09872cbba5a3"
       ],
       "source_chunks": [
-        "chunk-doc-c50fb00405a851a8-p1-0002",
-        "chunk-doc-c50fb00405a851a8-p1-0004",
-        "chunk-doc-c50fb00405a851a8-p1-0005",
-        "chunk-doc-c50fb00405a851a8-p1-0006",
-        "chunk-doc-c50fb00405a851a8-p2-0000"
+        "chunk-doc-c50fb00405a851a8-p0001-0002",
+        "chunk-doc-c50fb00405a851a8-p0001-0004",
+        "chunk-doc-c50fb00405a851a8-p0001-0005",
+        "chunk-doc-c50fb00405a851a8-p0001-0006",
+        "chunk-doc-c50fb00405a851a8-p0002-0000"
       ],
       "supporting_evidence": [
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0002",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0002",
           "end": null,
           "start": null,
           "text": "EVC"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0002",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0002",
           "end": null,
           "start": null,
           "text": "This document specifies the service attributes of an Ethernet Virtual Connection (EVC) delivered by a Service\nProvider to a Subscriber. The EVC is an association of two or more UNIs that limits the exchange of Service\nFrames."
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0004",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0004",
           "end": null,
           "start": null,
           "text": "EVC"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0005",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
           "end": null,
           "start": null,
           "text": "EVC"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0005",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
           "end": null,
           "start": null,
-          "text": "| EIR | Integer | Mbps | O | 0–1000 | 0 | Excess Information Rate for the EVC |"
+          "text": "| CoS Name | String |  | O |  | Standard | Class of Service name applied to the EVC |"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0006",
-          "end": null,
-          "start": null,
-          "text": "EVC"
-        },
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p2-0000",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0006",
           "end": null,
           "start": null,
           "text": "EVC"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p2-0000",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0002-0000",
+          "end": null,
+          "start": null,
+          "text": "EVC"
+        },
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0002-0000",
           "end": null,
           "start": null,
           "text": "The Service Provider allocates the EVC ID and maintains the Ethernet Virtual Connection for the duration of the\ncontract."
@@ -1138,56 +1138,56 @@
       ],
       "normalized_name": "uni",
       "source_attributes": [
-        "attr-332f54f132477f2e",
-        "attr-a5788ff894afcb40",
-        "attr-b96a0ea5e87e99dc"
+        "attr-bc11468d6115903a",
+        "attr-d8a4b43dc8a91115",
+        "attr-f17dcac1322fe857"
       ],
       "source_chunks": [
-        "chunk-doc-c50fb00405a851a8-p1-0001",
-        "chunk-doc-c50fb00405a851a8-p1-0002",
-        "chunk-doc-c50fb00405a851a8-p1-0007",
-        "chunk-doc-c50fb00405a851a8-p1-0008",
-        "chunk-doc-c50fb00405a851a8-p1-0009"
+        "chunk-doc-c50fb00405a851a8-p0001-0001",
+        "chunk-doc-c50fb00405a851a8-p0001-0002",
+        "chunk-doc-c50fb00405a851a8-p0001-0007",
+        "chunk-doc-c50fb00405a851a8-p0001-0008",
+        "chunk-doc-c50fb00405a851a8-p0001-0009"
       ],
       "supporting_evidence": [
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0001",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0001",
           "end": null,
           "start": null,
           "text": "UNI"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0002",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0002",
           "end": null,
           "start": null,
           "text": "The EVC is an association of two or more UNIs that limits the exchange of Service\nFrames."
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0007",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0007",
           "end": null,
           "start": null,
           "text": "The UNI has a port speed of 1 Gbps. Each UNI SHALL have a physical medium and a MAC address. There are\n12 such UNIs in the reference deployment."
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0007",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0007",
           "end": null,
           "start": null,
           "text": "UNI"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0008",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0008",
           "end": null,
           "start": null,
           "text": "UNI"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0009",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0009",
           "end": null,
           "start": null,
           "text": "UNI"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0009",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0009",
           "end": null,
           "start": null,
           "text": "| Port Speed | Integer | Mbps | M | 10, 100, 1000, 10000 | 1000 | Physical port speed of the UNI |"
@@ -1206,78 +1206,78 @@
       "normalized_name": "service",
       "source_attributes": [],
       "source_chunks": [
-        "chunk-doc-c50fb00405a851a8-p1-0000",
-        "chunk-doc-c50fb00405a851a8-p1-0002",
-        "chunk-doc-c50fb00405a851a8-p1-0003",
-        "chunk-doc-c50fb00405a851a8-p1-0004",
-        "chunk-doc-c50fb00405a851a8-p1-0005",
-        "chunk-doc-c50fb00405a851a8-p1-0006",
-        "chunk-doc-c50fb00405a851a8-p1-0010",
-        "chunk-doc-c50fb00405a851a8-p2-0000"
+        "chunk-doc-c50fb00405a851a8-p0001-0000",
+        "chunk-doc-c50fb00405a851a8-p0001-0002",
+        "chunk-doc-c50fb00405a851a8-p0001-0003",
+        "chunk-doc-c50fb00405a851a8-p0001-0004",
+        "chunk-doc-c50fb00405a851a8-p0001-0005",
+        "chunk-doc-c50fb00405a851a8-p0001-0006",
+        "chunk-doc-c50fb00405a851a8-p0001-0010",
+        "chunk-doc-c50fb00405a851a8-p0002-0000"
       ],
       "supporting_evidence": [
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0000",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0000",
           "end": null,
           "start": null,
           "text": "Service"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0002",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0002",
           "end": null,
           "start": null,
           "text": "This document specifies the service attributes of an Ethernet Virtual Connection (EVC) delivered by a Service\nProvider to a Subscriber. The EVC is an association of two or more UNIs that limits the exchange of Service\nFrames."
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0002",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0002",
           "end": null,
           "start": null,
           "text": "service"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0003",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0003",
           "end": null,
           "start": null,
           "text": "Service"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0004",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0004",
           "end": null,
           "start": null,
           "text": "Service"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0005",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
           "end": null,
           "start": null,
           "text": "Service"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0006",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0006",
           "end": null,
           "start": null,
           "text": "Service"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0010",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0010",
           "end": null,
           "start": null,
           "text": "Provisioning of the service\ntakes up to 5 working days."
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0010",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0010",
           "end": null,
           "start": null,
           "text": "service"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p2-0000",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0002-0000",
           "end": null,
           "start": null,
           "text": "Service"
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p2-0000",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0002-0000",
           "end": null,
           "start": null,
           "text": "The Service Provider allocates the EVC ID and maintains the Ethernet Virtual Connection for the duration of the\ncontract."
@@ -1287,91 +1287,15 @@
   ],
   "mappings": [
     {
-      "attribute_id": "attr-01cb268053ce82c5",
-      "confidence": 0.9148,
+      "attribute_id": "attr-17dfc0d487d26ba3",
+      "confidence": 0.9147,
       "entity_id": "cent-6a720f19ea45da95",
-      "mapping_id": "map-b72c3979b0045ef0",
+      "mapping_id": "map-c324762f5e68f88a",
       "relationship_type": "has_attribute",
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0005",
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0005",
       "supporting_evidence": [
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0005",
-          "end": null,
-          "start": null,
-          "text": "| EIR | Integer | Mbps | O | 0–1000 | 0 | Excess Information Rate for the EVC |"
-        }
-      ]
-    },
-    {
-      "attribute_id": "attr-332f54f132477f2e",
-      "confidence": 0.9458,
-      "entity_id": "cent-7af76e74d62dd02b",
-      "mapping_id": "map-141e635359c93d6b",
-      "relationship_type": "has_attribute",
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0009",
-      "supporting_evidence": [
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0007",
-          "end": null,
-          "start": null,
-          "text": "The UNI has a port speed of 1 Gbps."
-        },
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0009",
-          "end": null,
-          "start": null,
-          "text": "| Port Speed | Integer | Mbps | M | 10, 100, 1000, 10000 | 1000 | Physical port speed of the UNI |"
-        }
-      ]
-    },
-    {
-      "attribute_id": "attr-4bfeb774c76f7e61",
-      "confidence": 0.5746,
-      "entity_id": "cent-2af077a7721eb72e",
-      "mapping_id": "map-40e129a198c62b73",
-      "relationship_type": "constrains",
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0010",
-      "supporting_evidence": [
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0010",
-          "end": null,
-          "start": null,
-          "text": "Each Subscriber SHALL have an IMSI and an MSISDN. The Subscriber's MSISDN is an E.164 number such as\n+447700900123."
-        },
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0010",
-          "end": null,
-          "start": null,
-          "text": "Subscriber's MSISDN"
-        }
-      ]
-    },
-    {
-      "attribute_id": "attr-75af9e452c565057",
-      "confidence": 0.9148,
-      "entity_id": "cent-6a720f19ea45da95",
-      "mapping_id": "map-7cb92ab811cf5559",
-      "relationship_type": "has_attribute",
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0005",
-      "supporting_evidence": [
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0005",
-          "end": null,
-          "start": null,
-          "text": "| EVC ID | String |  | M |  |  | Unique identifier for the EVC assigned by the Service Provider |"
-        }
-      ]
-    },
-    {
-      "attribute_id": "attr-97cf186c8477776b",
-      "confidence": 0.9148,
-      "entity_id": "cent-6a720f19ea45da95",
-      "mapping_id": "map-25021d5bdb7f7b0d",
-      "relationship_type": "has_attribute",
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0005",
-      "supporting_evidence": [
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0005",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
           "end": null,
           "start": null,
           "text": "| CoS Name | String |  | O |  | Standard | Class of Service name applied to the EVC |"
@@ -1379,59 +1303,113 @@
       ]
     },
     {
-      "attribute_id": "attr-9ac494efe4179eeb",
-      "confidence": 0.9148,
+      "attribute_id": "attr-2290c7e61a90b9f7",
+      "confidence": 0.9147,
       "entity_id": "cent-6a720f19ea45da95",
-      "mapping_id": "map-132c0c2ebc781847",
+      "mapping_id": "map-8a27cb4c6628677a",
       "relationship_type": "has_attribute",
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0005",
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0005",
       "supporting_evidence": [
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0005",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
           "end": null,
           "start": null,
-          "text": "| Service Type | Enum |  | M | Point-to-Point, Multipoint-to-Multipoint | Point-to-Point | Connectivity type of the EVC |"
+          "text": "| CIR | Integer | Mbps | M | 10–1000 | 100 | Committed Information Rate for the EVC |"
         }
       ]
     },
     {
-      "attribute_id": "attr-a5788ff894afcb40",
-      "confidence": 0.9458,
-      "entity_id": "cent-7af76e74d62dd02b",
-      "mapping_id": "map-40c54a55f329aaf3",
+      "attribute_id": "attr-2814e568f093ca77",
+      "confidence": 0.9147,
+      "entity_id": "cent-6a720f19ea45da95",
+      "mapping_id": "map-fbb262916229005d",
       "relationship_type": "has_attribute",
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0009",
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0005",
       "supporting_evidence": [
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0007",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
+          "end": null,
+          "start": null,
+          "text": "| EIR | Integer | Mbps | O | 0–1000 | 0 | Excess Information Rate for the EVC |"
+        }
+      ]
+    },
+    {
+      "attribute_id": "attr-64146aaa100ad239",
+      "confidence": 0.9147,
+      "entity_id": "cent-6a720f19ea45da95",
+      "mapping_id": "map-5aba8c6807546e37",
+      "relationship_type": "has_attribute",
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0005",
+      "supporting_evidence": [
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
+          "end": null,
+          "start": null,
+          "text": "| EVC ID | String |  | M |  |  | Unique identifier for the EVC assigned by the Service Provider |"
+        }
+      ]
+    },
+    {
+      "attribute_id": "attr-a02bbe44515e6e48",
+      "confidence": 0.5746,
+      "entity_id": "cent-2af077a7721eb72e",
+      "mapping_id": "map-5596584ab4a02ea9",
+      "relationship_type": "constrains",
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0010",
+      "supporting_evidence": [
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0010",
+          "end": null,
+          "start": null,
+          "text": "Each Subscriber SHALL have an IMSI and an MSISDN. The Subscriber's MSISDN is an E.164 number such as\n+447700900123."
+        },
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0010",
+          "end": null,
+          "start": null,
+          "text": "Subscriber's MSISDN"
+        }
+      ]
+    },
+    {
+      "attribute_id": "attr-bc11468d6115903a",
+      "confidence": 0.9459,
+      "entity_id": "cent-7af76e74d62dd02b",
+      "mapping_id": "map-df92653b7b167402",
+      "relationship_type": "has_attribute",
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0009",
+      "supporting_evidence": [
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0007",
+          "end": null,
+          "start": null,
+          "text": "The UNI has a port speed of 1 Gbps."
+        },
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0009",
+          "end": null,
+          "start": null,
+          "text": "| Port Speed | Integer | Mbps | M | 10, 100, 1000, 10000 | 1000 | Physical port speed of the UNI |"
+        }
+      ]
+    },
+    {
+      "attribute_id": "attr-d8a4b43dc8a91115",
+      "confidence": 0.9459,
+      "entity_id": "cent-7af76e74d62dd02b",
+      "mapping_id": "map-6ebe204baf42fcef",
+      "relationship_type": "has_attribute",
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0009",
+      "supporting_evidence": [
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0007",
           "end": null,
           "start": null,
           "text": "Each UNI SHALL have a physical medium and a MAC address."
         },
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0009",
-          "end": null,
-          "start": null,
-          "text": "| Physical Medium | Enum |  | M | Copper, Fibre | Fibre | Physical medium of the UNI |"
-        }
-      ]
-    },
-    {
-      "attribute_id": "attr-b96a0ea5e87e99dc",
-      "confidence": 0.9458,
-      "entity_id": "cent-7af76e74d62dd02b",
-      "mapping_id": "map-a9d2d9c0d72626b7",
-      "relationship_type": "has_attribute",
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0009",
-      "supporting_evidence": [
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0007",
-          "end": null,
-          "start": null,
-          "text": "Each UNI SHALL have a physical medium and a MAC address."
-        },
-        {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0009",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0009",
           "end": null,
           "start": null,
           "text": "| MAC Address | String |  | M |  |  | MAC address of the UNI port |"
@@ -1439,18 +1417,40 @@
       ]
     },
     {
-      "attribute_id": "attr-f64a4ff4d45ae720",
-      "confidence": 0.9148,
-      "entity_id": "cent-6a720f19ea45da95",
-      "mapping_id": "map-5ee8a4fcf16926a5",
+      "attribute_id": "attr-f17dcac1322fe857",
+      "confidence": 0.9459,
+      "entity_id": "cent-7af76e74d62dd02b",
+      "mapping_id": "map-ebdfc2c8f3c12a2b",
       "relationship_type": "has_attribute",
-      "source_chunk": "chunk-doc-c50fb00405a851a8-p1-0005",
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0009",
       "supporting_evidence": [
         {
-          "chunk_id": "chunk-doc-c50fb00405a851a8-p1-0005",
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0007",
           "end": null,
           "start": null,
-          "text": "| CIR | Integer | Mbps | M | 10–1000 | 100 | Committed Information Rate for the EVC |"
+          "text": "Each UNI SHALL have a physical medium and a MAC address."
+        },
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0009",
+          "end": null,
+          "start": null,
+          "text": "| Physical Medium | Enum |  | M | Copper, Fibre | Fibre | Physical medium of the UNI |"
+        }
+      ]
+    },
+    {
+      "attribute_id": "attr-fd8f09872cbba5a3",
+      "confidence": 0.9147,
+      "entity_id": "cent-6a720f19ea45da95",
+      "mapping_id": "map-3cf2d0966857152b",
+      "relationship_type": "has_attribute",
+      "source_chunk": "chunk-doc-c50fb00405a851a8-p0001-0005",
+      "supporting_evidence": [
+        {
+          "chunk_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
+          "end": null,
+          "start": null,
+          "text": "| Service Type | Enum |  | M | Point-to-Point, Multipoint-to-Multipoint | Point-to-Point | Connectivity type of the EVC |"
         }
       ]
     }
@@ -1463,209 +1463,209 @@
   "schema_version": "1.0",
   "trace": [
     {
-      "from_id": "attr-01cb268053ce82c5",
+      "from_id": "attr-17dfc0d487d26ba3",
       "kind": "attribute>entity",
       "to_id": "ent-3293ddd9d0becd3c"
     },
     {
-      "from_id": "attr-332f54f132477f2e",
+      "from_id": "attr-2290c7e61a90b9f7",
       "kind": "attribute>entity",
-      "to_id": "ent-0e10e2be55e178c8"
+      "to_id": "ent-3293ddd9d0becd3c"
     },
     {
-      "from_id": "attr-4bfeb774c76f7e61",
+      "from_id": "attr-2814e568f093ca77",
+      "kind": "attribute>entity",
+      "to_id": "ent-3293ddd9d0becd3c"
+    },
+    {
+      "from_id": "attr-64146aaa100ad239",
+      "kind": "attribute>entity",
+      "to_id": "ent-3293ddd9d0becd3c"
+    },
+    {
+      "from_id": "attr-9ab30bfc2184cba1",
       "kind": "attribute>entity",
       "to_id": "ent-418e82f642f12ca7"
     },
     {
-      "from_id": "attr-75af9e452c565057",
-      "kind": "attribute>entity",
-      "to_id": "ent-3293ddd9d0becd3c"
-    },
-    {
-      "from_id": "attr-97cf186c8477776b",
-      "kind": "attribute>entity",
-      "to_id": "ent-3293ddd9d0becd3c"
-    },
-    {
-      "from_id": "attr-9ac494efe4179eeb",
-      "kind": "attribute>entity",
-      "to_id": "ent-3293ddd9d0becd3c"
-    },
-    {
-      "from_id": "attr-a5788ff894afcb40",
-      "kind": "attribute>entity",
-      "to_id": "ent-0e10e2be55e178c8"
-    },
-    {
-      "from_id": "attr-b96a0ea5e87e99dc",
-      "kind": "attribute>entity",
-      "to_id": "ent-0e10e2be55e178c8"
-    },
-    {
-      "from_id": "attr-be235a54857e1eea",
+      "from_id": "attr-a02bbe44515e6e48",
       "kind": "attribute>entity",
       "to_id": "ent-418e82f642f12ca7"
     },
     {
-      "from_id": "attr-f64a4ff4d45ae720",
+      "from_id": "attr-bc11468d6115903a",
+      "kind": "attribute>entity",
+      "to_id": "ent-0e10e2be55e178c8"
+    },
+    {
+      "from_id": "attr-d8a4b43dc8a91115",
+      "kind": "attribute>entity",
+      "to_id": "ent-0e10e2be55e178c8"
+    },
+    {
+      "from_id": "attr-f17dcac1322fe857",
+      "kind": "attribute>entity",
+      "to_id": "ent-0e10e2be55e178c8"
+    },
+    {
+      "from_id": "attr-fd8f09872cbba5a3",
       "kind": "attribute>entity",
       "to_id": "ent-3293ddd9d0becd3c"
     },
     {
-      "from_id": "attr-01cb268053ce82c5",
+      "from_id": "attr-17dfc0d487d26ba3",
       "kind": "attribute>mapping",
-      "to_id": "map-b72c3979b0045ef0"
+      "to_id": "map-c324762f5e68f88a"
     },
     {
-      "from_id": "attr-332f54f132477f2e",
+      "from_id": "attr-2290c7e61a90b9f7",
       "kind": "attribute>mapping",
-      "to_id": "map-141e635359c93d6b"
+      "to_id": "map-8a27cb4c6628677a"
     },
     {
-      "from_id": "attr-4bfeb774c76f7e61",
+      "from_id": "attr-2814e568f093ca77",
       "kind": "attribute>mapping",
-      "to_id": "map-40e129a198c62b73"
+      "to_id": "map-fbb262916229005d"
     },
     {
-      "from_id": "attr-75af9e452c565057",
+      "from_id": "attr-64146aaa100ad239",
       "kind": "attribute>mapping",
-      "to_id": "map-7cb92ab811cf5559"
+      "to_id": "map-5aba8c6807546e37"
     },
     {
-      "from_id": "attr-97cf186c8477776b",
+      "from_id": "attr-a02bbe44515e6e48",
       "kind": "attribute>mapping",
-      "to_id": "map-25021d5bdb7f7b0d"
+      "to_id": "map-5596584ab4a02ea9"
     },
     {
-      "from_id": "attr-9ac494efe4179eeb",
+      "from_id": "attr-bc11468d6115903a",
       "kind": "attribute>mapping",
-      "to_id": "map-132c0c2ebc781847"
+      "to_id": "map-df92653b7b167402"
     },
     {
-      "from_id": "attr-a5788ff894afcb40",
+      "from_id": "attr-d8a4b43dc8a91115",
       "kind": "attribute>mapping",
-      "to_id": "map-40c54a55f329aaf3"
+      "to_id": "map-6ebe204baf42fcef"
     },
     {
-      "from_id": "attr-b96a0ea5e87e99dc",
+      "from_id": "attr-f17dcac1322fe857",
       "kind": "attribute>mapping",
-      "to_id": "map-a9d2d9c0d72626b7"
+      "to_id": "map-ebdfc2c8f3c12a2b"
     },
     {
-      "from_id": "attr-f64a4ff4d45ae720",
+      "from_id": "attr-fd8f09872cbba5a3",
       "kind": "attribute>mapping",
-      "to_id": "map-5ee8a4fcf16926a5"
+      "to_id": "map-3cf2d0966857152b"
     },
     {
-      "from_id": "chunk-doc-c50fb00405a851a8-p1-0005",
+      "from_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
       "kind": "chunk>attribute",
-      "to_id": "attr-01cb268053ce82c5"
+      "to_id": "attr-17dfc0d487d26ba3"
     },
     {
-      "from_id": "chunk-doc-c50fb00405a851a8-p1-0005",
+      "from_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
       "kind": "chunk>attribute",
-      "to_id": "attr-75af9e452c565057"
+      "to_id": "attr-2290c7e61a90b9f7"
     },
     {
-      "from_id": "chunk-doc-c50fb00405a851a8-p1-0005",
+      "from_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
       "kind": "chunk>attribute",
-      "to_id": "attr-97cf186c8477776b"
+      "to_id": "attr-2814e568f093ca77"
     },
     {
-      "from_id": "chunk-doc-c50fb00405a851a8-p1-0005",
+      "from_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
       "kind": "chunk>attribute",
-      "to_id": "attr-9ac494efe4179eeb"
+      "to_id": "attr-64146aaa100ad239"
     },
     {
-      "from_id": "chunk-doc-c50fb00405a851a8-p1-0005",
+      "from_id": "chunk-doc-c50fb00405a851a8-p0001-0005",
       "kind": "chunk>attribute",
-      "to_id": "attr-f64a4ff4d45ae720"
+      "to_id": "attr-fd8f09872cbba5a3"
     },
     {
-      "from_id": "chunk-doc-c50fb00405a851a8-p1-0009",
+      "from_id": "chunk-doc-c50fb00405a851a8-p0001-0009",
       "kind": "chunk>attribute",
-      "to_id": "attr-332f54f132477f2e"
+      "to_id": "attr-bc11468d6115903a"
     },
     {
-      "from_id": "chunk-doc-c50fb00405a851a8-p1-0009",
+      "from_id": "chunk-doc-c50fb00405a851a8-p0001-0009",
       "kind": "chunk>attribute",
-      "to_id": "attr-a5788ff894afcb40"
+      "to_id": "attr-d8a4b43dc8a91115"
     },
     {
-      "from_id": "chunk-doc-c50fb00405a851a8-p1-0009",
+      "from_id": "chunk-doc-c50fb00405a851a8-p0001-0009",
       "kind": "chunk>attribute",
-      "to_id": "attr-b96a0ea5e87e99dc"
+      "to_id": "attr-f17dcac1322fe857"
     },
     {
-      "from_id": "chunk-doc-c50fb00405a851a8-p1-0010",
+      "from_id": "chunk-doc-c50fb00405a851a8-p0001-0010",
       "kind": "chunk>attribute",
-      "to_id": "attr-4bfeb774c76f7e61"
+      "to_id": "attr-9ab30bfc2184cba1"
     },
     {
-      "from_id": "chunk-doc-c50fb00405a851a8-p1-0010",
+      "from_id": "chunk-doc-c50fb00405a851a8-p0001-0010",
       "kind": "chunk>attribute",
-      "to_id": "attr-be235a54857e1eea"
+      "to_id": "attr-a02bbe44515e6e48"
     },
     {
       "from_id": "doc-c50fb00405a851a8",
       "kind": "document>chunk",
-      "to_id": "chunk-doc-c50fb00405a851a8-p1-0000"
+      "to_id": "chunk-doc-c50fb00405a851a8-p0001-0000"
     },
     {
       "from_id": "doc-c50fb00405a851a8",
       "kind": "document>chunk",
-      "to_id": "chunk-doc-c50fb00405a851a8-p1-0001"
+      "to_id": "chunk-doc-c50fb00405a851a8-p0001-0001"
     },
     {
       "from_id": "doc-c50fb00405a851a8",
       "kind": "document>chunk",
-      "to_id": "chunk-doc-c50fb00405a851a8-p1-0002"
+      "to_id": "chunk-doc-c50fb00405a851a8-p0001-0002"
     },
     {
       "from_id": "doc-c50fb00405a851a8",
       "kind": "document>chunk",
-      "to_id": "chunk-doc-c50fb00405a851a8-p1-0003"
+      "to_id": "chunk-doc-c50fb00405a851a8-p0001-0003"
     },
     {
       "from_id": "doc-c50fb00405a851a8",
       "kind": "document>chunk",
-      "to_id": "chunk-doc-c50fb00405a851a8-p1-0004"
+      "to_id": "chunk-doc-c50fb00405a851a8-p0001-0004"
     },
     {
       "from_id": "doc-c50fb00405a851a8",
       "kind": "document>chunk",
-      "to_id": "chunk-doc-c50fb00405a851a8-p1-0005"
+      "to_id": "chunk-doc-c50fb00405a851a8-p0001-0005"
     },
     {
       "from_id": "doc-c50fb00405a851a8",
       "kind": "document>chunk",
-      "to_id": "chunk-doc-c50fb00405a851a8-p1-0006"
+      "to_id": "chunk-doc-c50fb00405a851a8-p0001-0006"
     },
     {
       "from_id": "doc-c50fb00405a851a8",
       "kind": "document>chunk",
-      "to_id": "chunk-doc-c50fb00405a851a8-p1-0007"
+      "to_id": "chunk-doc-c50fb00405a851a8-p0001-0007"
     },
     {
       "from_id": "doc-c50fb00405a851a8",
       "kind": "document>chunk",
-      "to_id": "chunk-doc-c50fb00405a851a8-p1-0008"
+      "to_id": "chunk-doc-c50fb00405a851a8-p0001-0008"
     },
     {
       "from_id": "doc-c50fb00405a851a8",
       "kind": "document>chunk",
-      "to_id": "chunk-doc-c50fb00405a851a8-p1-0009"
+      "to_id": "chunk-doc-c50fb00405a851a8-p0001-0009"
     },
     {
       "from_id": "doc-c50fb00405a851a8",
       "kind": "document>chunk",
-      "to_id": "chunk-doc-c50fb00405a851a8-p1-0010"
+      "to_id": "chunk-doc-c50fb00405a851a8-p0001-0010"
     },
     {
       "from_id": "doc-c50fb00405a851a8",
       "kind": "document>chunk",
-      "to_id": "chunk-doc-c50fb00405a851a8-p2-0000"
+      "to_id": "chunk-doc-c50fb00405a851a8-p0002-0000"
     },
     {
       "from_id": "ent-0e10e2be55e178c8",
@@ -1693,52 +1693,52 @@
       "to_id": "cent-37f0791a8a60bad8"
     },
     {
-      "from_id": "map-132c0c2ebc781847",
+      "from_id": "map-3cf2d0966857152b",
       "kind": "mapping>entity",
       "to_id": "cent-6a720f19ea45da95"
     },
     {
-      "from_id": "map-141e635359c93d6b",
-      "kind": "mapping>entity",
-      "to_id": "cent-7af76e74d62dd02b"
-    },
-    {
-      "from_id": "map-25021d5bdb7f7b0d",
-      "kind": "mapping>entity",
-      "to_id": "cent-6a720f19ea45da95"
-    },
-    {
-      "from_id": "map-40c54a55f329aaf3",
-      "kind": "mapping>entity",
-      "to_id": "cent-7af76e74d62dd02b"
-    },
-    {
-      "from_id": "map-40e129a198c62b73",
+      "from_id": "map-5596584ab4a02ea9",
       "kind": "mapping>entity",
       "to_id": "cent-2af077a7721eb72e"
     },
     {
-      "from_id": "map-5ee8a4fcf16926a5",
+      "from_id": "map-5aba8c6807546e37",
       "kind": "mapping>entity",
       "to_id": "cent-6a720f19ea45da95"
     },
     {
-      "from_id": "map-7cb92ab811cf5559",
-      "kind": "mapping>entity",
-      "to_id": "cent-6a720f19ea45da95"
-    },
-    {
-      "from_id": "map-a9d2d9c0d72626b7",
+      "from_id": "map-6ebe204baf42fcef",
       "kind": "mapping>entity",
       "to_id": "cent-7af76e74d62dd02b"
     },
     {
-      "from_id": "map-b72c3979b0045ef0",
+      "from_id": "map-8a27cb4c6628677a",
+      "kind": "mapping>entity",
+      "to_id": "cent-6a720f19ea45da95"
+    },
+    {
+      "from_id": "map-c324762f5e68f88a",
+      "kind": "mapping>entity",
+      "to_id": "cent-6a720f19ea45da95"
+    },
+    {
+      "from_id": "map-df92653b7b167402",
+      "kind": "mapping>entity",
+      "to_id": "cent-7af76e74d62dd02b"
+    },
+    {
+      "from_id": "map-ebdfc2c8f3c12a2b",
+      "kind": "mapping>entity",
+      "to_id": "cent-7af76e74d62dd02b"
+    },
+    {
+      "from_id": "map-fbb262916229005d",
       "kind": "mapping>entity",
       "to_id": "cent-6a720f19ea45da95"
     }
   ],
   "unmapped_attribute_ids": [
-    "attr-be235a54857e1eea"
+    "attr-9ab30bfc2184cba1"
   ]
 }

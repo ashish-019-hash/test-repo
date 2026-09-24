@@ -18,7 +18,7 @@ from doc_extractor.llm.tasks import ATTRIBUTE_CANDIDATES_TASK, AttributeCandidat
 def test_scripted_provider_pops_in_order() -> None:
     r1 = AttributeCandidatesResponse(candidates=[])
     r2 = AttributeCandidatesResponse(
-        candidates=[CandidateProposal(raw_name="MAC Address", source_text_quote="MAC address")]
+        candidates=[CandidateProposal(raw_name="MAC Address", source_text_quote="MAC address", sentence=None)]
     )
     provider = ScriptedProvider({"attribute_candidates": [r1, r2]})
 
@@ -53,7 +53,7 @@ def test_replay_provider_hits_fixture(tmp_path: Path, cfg: AppConfig) -> None:
     key = cache_key(ATTRIBUTE_CANDIDATES_TASK, payload, model=None, api_version="2024-10-21")
     fixture = tmp_path / f"{key}.json"
     response = AttributeCandidatesResponse(
-        candidates=[CandidateProposal(raw_name="MAC Address", source_text_quote="MAC address")]
+        candidates=[CandidateProposal(raw_name="MAC Address", source_text_quote="MAC address", sentence=None)]
     )
     fixture.write_text(
         json.dumps({"task": "attribute_candidates", "response": response.model_dump(mode="json")}),

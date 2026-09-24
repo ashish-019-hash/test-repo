@@ -15,20 +15,29 @@ from doc_extractor.storage import ids
 
 
 class _ChunkBuilder:
-    """Assigns chunk ids from a running counter keyed by the chunk's first page."""
+    """Assigns chunk ids from a running counter keyed by the page of the chunk's first *new* block.
+
+    Overlap blocks carried in from the previous chunk are context, not position: a chunk
+    whose new content starts on page 3 gets a page-3 id even if it opens with a carried
+    page-2 block. Because blocks arrive in document order, the id page never decreases
+    across emitted chunks, so ids sort in emission order (`validate_output` relies on it).
+    """
 
     def __init__(self, document_id: str) -> None:
         self.document_id = document_id
         self._counters: dict[int, int] = {}
 
-    def build(self, blocks: list[Block], heading_path: list[str], strategy: str) -> Chunk:
+    def build(
+        self, blocks: list[Block], heading_path: list[str], strategy: str, *, new_from: int = 0
+    ) -> Chunk:
         first_page = blocks[0].page
         last_page = blocks[-1].page
-        n = self._counters.get(first_page, 0)
-        self._counters[first_page] = n + 1
+        id_page = blocks[new_from].page
+        n = self._counters.get(id_page, 0)
+        self._counters[id_page] = n + 1
         source_text = "\n".join(b.text for b in blocks)
         return Chunk(
-            chunk_id=ids.chunk_id(self.document_id, first_page, n),
+            chunk_id=ids.chunk_id(self.document_id, id_page, n),
             document_id=self.document_id,
             page_number=first_page,
             page_end=last_page,
@@ -97,8 +106,9 @@ def fixed_tokens(
 
     Blocks are the packing unit (never split inside a block, so never inside a
     sentence or a table row). Table blocks are always isolated into their own
-    chunk. Overlap only carries non-table blocks, so a table is never
-    duplicated into a neighbouring chunk.
+    chunk. Overlap only carries non-table blocks that were *new* in the chunk just
+    flushed, so a table is never duplicated into a neighbouring chunk and a block
+    never cascades into more than two chunks.
     """
     builder = builder or _ChunkBuilder(document_id)
     heading_path = heading_path or []
@@ -108,17 +118,17 @@ def fixed_tokens(
 
     current: list[Block] = []
     current_tokens = 0
-    has_new = False
+    new_from = 0  # index in `current` of the first block that is not carried overlap
 
     def flush() -> None:
-        nonlocal current, current_tokens, has_new
-        if not current or not has_new:
-            current, current_tokens, has_new = [], 0, False
+        nonlocal current, current_tokens, new_from
+        if new_from >= len(current):  # nothing new since the last flush: drop stale overlap
+            current, current_tokens, new_from = [], 0, 0
             return
-        chunks.append(builder.build(current, heading_path, strategy))
+        chunks.append(builder.build(current, heading_path, strategy, new_from=new_from))
         carry: list[Block] = []
         carry_tokens = 0
-        for b in reversed(current):
+        for b in reversed(current[new_from:]):
             if b.kind == "table":
                 break
             t = count_tokens(b.text)
@@ -126,7 +136,7 @@ def fixed_tokens(
                 break
             carry.insert(0, b)
             carry_tokens += t
-        current, current_tokens, has_new = carry, carry_tokens, False
+        current, current_tokens, new_from = carry, carry_tokens, len(carry)
 
     for b in blocks:
         if b.kind == "table":
@@ -138,7 +148,6 @@ def fixed_tokens(
             flush()
         current.append(b)
         current_tokens += t
-        has_new = True
     flush()
 
     return chunks

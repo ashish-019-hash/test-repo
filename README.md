@@ -202,6 +202,7 @@ To restart one document from scratch, delete its output directory or run without
 | `database is locked` | Another process holds `checkpoints.sqlite`. Wait for it to finish or use a different `--out`. |
 | `Nothing to resume` (exit 3) | No checkpoint for this document + config in `--out`. Run once without `--resume`. |
 | `snapshot ... not found` with `--resume-from` | The predecessor stage never completed in this `--out`. Use `--resume` or run from scratch. |
+| Outputs produced before version 0.1.1 | Block and chunk ids changed format (`p0002` instead of `p2`). Delete the old `--out` directory or use a new one; do not `--resume` across the upgrade. |
 | `snapshot ... belongs to document` with `--resume-from` | The `--out` directory holds another document's snapshots. Use one `--out` per document. The existing checkpoint is left untouched. |
 | Windows: long paths / `\` in `.env` | Quote paths in `.env` and prefer forward slashes; run inside PowerShell with the venv activated. |
 | `python3.12: command not found` | Install Python 3.12 (`pyenv install 3.12`, `uv python install 3.12`, or the OS package). |
