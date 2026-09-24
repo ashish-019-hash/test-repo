@@ -198,6 +198,41 @@ def test_attribute_extraction_grounds_azure_sentence_and_quote(cfg, telecom_spec
     assert trace.data.get("llm_candidate_sentence_dropped") == 1
 
 
+def test_attribute_extraction_merges_candidates_that_share_an_id(cfg, telecom_spec_md) -> None:
+    """The LLM repeating a rules candidate (same chunk, name and evidence) must not produce
+    two records with the same attribute id — that failed output validation with
+    'duplicate attribute id' after every retry."""
+    from doc_extractor.chunking import chunk_document
+    from doc_extractor.ingest import load_document
+
+    doc = load_document(telecom_spec_md, cfg)
+    chunks = chunk_document(doc, cfg)
+    target = next(c for c in chunks if "5 working days" in c.source_text)
+    duplicate = tasks.CandidateProposal(
+        raw_name="Provisioning Lead Time", source_text_quote="5 working days", sentence=None
+    )
+    responses = [
+        # the same proposal twice in one chunk -> identical attribute id
+        tasks.AttributeCandidatesResponse(candidates=[duplicate, duplicate])
+        if chunk is target
+        else tasks.AttributeCandidatesResponse(candidates=[])
+        for chunk in chunks
+    ]
+    state = {
+        "document": doc,
+        "chunks": chunks,
+        "stages": {"chunking": StageRecord(stage="chunking", status="succeeded", attempts=1)},
+    }
+
+    delta = AttributeExtractionAgent(cfg, _azure({"attribute_candidates": responses})).run(state)
+
+    everything = [*delta["attributes"], *delta["discarded_attributes"]]
+    all_ids = [a.attribute_id for a in everything]
+    assert len(all_ids) == len(set(all_ids))
+    assert sum(a.display_name == "Provisioning Lead Time" for a in everything) == 1
+    assert delta["traces"][-1].data.get("candidates_same_id_merged") == 1
+
+
 # --------------------------------------------------------------------------------------
 # Agent 8: binding judgement for attributes the rules pass left unmapped
 # --------------------------------------------------------------------------------------

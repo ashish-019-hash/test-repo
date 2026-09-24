@@ -56,6 +56,21 @@ def _evidence_text_for(candidate: AttributeCandidate) -> str:
     return candidate.source_text
 
 
+def _merge_into(keep: Attribute, other: Attribute) -> Attribute:
+    """`keep` with `other`'s evidence and display name/aliases folded in (order preserved)."""
+    merged_evidence = list(keep.evidence)
+    for ev in other.evidence:
+        if ev not in merged_evidence:
+            merged_evidence.append(ev)
+    merged_aliases = list(keep.aliases)
+    if other.display_name != keep.display_name and other.display_name not in merged_aliases:
+        merged_aliases.append(other.display_name)
+    for alias in other.aliases:
+        if alias not in merged_aliases:
+            merged_aliases.append(alias)
+    return keep.model_copy(update={"evidence": merged_evidence, "aliases": merged_aliases})
+
+
 class AttributeExtractionAgent(BaseAgent):
     name: ClassVar[StageName] = StageName.attribute_extraction
     requires: ClassVar[tuple[str, ...]] = ("chunks", "document")
@@ -117,6 +132,12 @@ class AttributeExtractionAgent(BaseAgent):
         discarded: list[Attribute] = []
         human_review_queue: list[HumanReviewItem] = []
 
+        # Two candidates can hash to the same attribute id (same chunk, camelCase name and
+        # evidence text) when the rules and the LLM both propose an attribute, or when the
+        # LLM repeats itself. Keep one record per id: the higher-scoring route wins, then
+        # the higher confidence; evidence and aliases are merged so nothing is lost.
+        route_rank = {"accept": 2, "review": 1, "discard": 0}
+        best_by_id: dict[str, tuple[Attribute, Any]] = {}
         for chunk, cand in records:
             binding = bindings[id(cand)]
             ctx = make_ctx(chunk, cand, bind_counts)
@@ -124,7 +145,21 @@ class AttributeExtractionAgent(BaseAgent):
             attr = self._build_attribute(
                 document, chunk, block_map, cand, binding, breakdown, lexicons, known_entities
             )
+            existing = best_by_id.get(attr.attribute_id)
+            if existing is None:
+                best_by_id[attr.attribute_id] = (attr, breakdown)
+                continue
+            trace.count("candidates_same_id_merged")
+            prev_attr, prev_breakdown = existing
+            if (route_rank[breakdown.route], breakdown.clamped) > (
+                route_rank[prev_breakdown.route],
+                prev_breakdown.clamped,
+            ):
+                best_by_id[attr.attribute_id] = (_merge_into(attr, prev_attr), breakdown)
+            else:
+                best_by_id[attr.attribute_id] = (_merge_into(prev_attr, attr), prev_breakdown)
 
+        for attr, breakdown in best_by_id.values():
             if breakdown.route == "discard":
                 discarded.append(attr)
                 continue
@@ -267,17 +302,7 @@ class AttributeExtractionAgent(BaseAgent):
                 keep, other = attr, existing
             else:
                 keep, other = existing, attr
-            merged_evidence = list(keep.evidence)
-            for ev in other.evidence:
-                if ev not in merged_evidence:
-                    merged_evidence.append(ev)
-            merged_aliases = list(keep.aliases)
-            if other.display_name != keep.display_name and other.display_name not in merged_aliases:
-                merged_aliases.append(other.display_name)
-            for alias in other.aliases:
-                if alias not in merged_aliases:
-                    merged_aliases.append(alias)
-            best[key] = keep.model_copy(update={"evidence": merged_evidence, "aliases": merged_aliases})
+            best[key] = _merge_into(keep, other)
         return list(best.values())
 
     def validate_output(self, delta: dict[str, Any], state: PipelineState) -> None:
