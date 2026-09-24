@@ -15,11 +15,11 @@ def document_id(file_bytes: bytes) -> str:
 
 
 def block_id(doc_id: str, page: int, n: int) -> str:
-    return f"blk-{doc_id}-p{page}-{n:04d}"
+    return f"blk-{doc_id}-p{page:04d}-{n:04d}"
 
 
 def chunk_id(doc_id: str, page: int, n: int) -> str:
-    return f"chunk-{doc_id}-p{page}-{n:04d}"
+    return f"chunk-{doc_id}-p{page:04d}-{n:04d}"
 
 
 def attribute_id(doc_id: str, chunk: str, attribute_name: str, source_text: str) -> str:

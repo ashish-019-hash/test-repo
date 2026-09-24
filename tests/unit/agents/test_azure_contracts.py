@@ -171,6 +171,7 @@ def test_attribute_extraction_grounds_azure_sentence_and_quote(cfg, telecom_spec
                         tasks.CandidateProposal(
                             raw_name="Activation Fee",
                             source_text_quote="an activation fee of 50 EUR",
+                            sentence=None,
                         ),
                     ]
                 )

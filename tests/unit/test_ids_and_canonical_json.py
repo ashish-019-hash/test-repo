@@ -8,8 +8,14 @@ from doc_extractor.storage.canonical_json import dumps
 def test_ids_are_stable_and_prefixed():
     assert ids.document_id(b"abc") == ids.document_id(b"abc")
     assert ids.document_id(b"abc").startswith("doc-") and len(ids.document_id(b"abc")) == 20
-    assert ids.block_id("doc-x", 2, 7) == "blk-doc-x-p2-0007"
-    assert ids.chunk_id("doc-x", 12, 1) == "chunk-doc-x-p12-0001"
+    assert ids.block_id("doc-x", 2, 7) == "blk-doc-x-p0002-0007"
+    assert ids.chunk_id("doc-x", 12, 1) == "chunk-doc-x-p0012-0001"
+
+
+def test_chunk_ids_sort_in_document_order_beyond_nine_pages():
+    """Regression: unpadded pages made 'p10' sort before 'p2', failing chunking validation."""
+    generated = [ids.chunk_id("doc-x", page, n) for page in range(1, 47) for n in range(3)]
+    assert generated == sorted(generated)
     assert ids.canonical_id(["b", "a"]) == ids.canonical_id(["a", "b"])
     assert ids.attribute_id("d", "c", "cir", "t") != ids.attribute_id("d", "c", "eir", "t")
 

@@ -87,3 +87,60 @@ def test_chunk_document_by_page_strategy(cfg: AppConfig, telecom_spec_md: Path) 
     chunks = chunk_document(doc, by_page_cfg)
     assert all(c.strategy == "by_page" for c in chunks)
     assert len(chunks) == len(doc.pages)
+
+
+def _block(doc_id: str, page: int, n: int, text: str, kind: str = "paragraph"):  # type: ignore[no-untyped-def]
+    from doc_extractor.schemas.document import Block
+    from doc_extractor.storage import ids
+
+    return Block(block_id=ids.block_id(doc_id, page, n), page=page, kind=kind, text=text)  # type: ignore[arg-type]
+
+
+def _blocks_with_overlap_across_table() -> list:  # type: ignore[type-arg]
+    """Reproduces the ICICI credit-card layout: a short trailing paragraph on page 2 is
+    carried as overlap, then a table on page 3 forces a flush before more page-3 prose."""
+    d = "doc-x"
+    return [
+        _block(d, 2, 0, "Card variants and fees are listed below."),
+        _block(d, 2, 1, "2"),  # page footer -> tiny block, always fits the overlap budget
+        _block(d, 3, 0, "| Card | Fee |\n| Coral | 500 |", kind="table"),
+        _block(d, 3, 1, "The fees are billed to the card account."),
+        _block(d, 3, 2, "3"),
+        _block(d, 4, 0, "| Card | Limit |\n| Sapphiro | 1000 |", kind="table"),
+        _block(d, 4, 1, "Charges apply irrespective of the variant."),
+    ]
+
+
+def test_overlap_across_table_keeps_chunk_ids_sorted(cfg: AppConfig) -> None:
+    """Regression: the chunk after an isolated table opened with carried page-2 overlap and
+    received a page-2 id, which sorted before the page-3 table chunk."""
+    blocks = _blocks_with_overlap_across_table()
+    for fn in (fixed_tokens, heading_aware):
+        chunks = fn(blocks, "doc-x", cfg)
+        ids = [c.chunk_id for c in chunks]
+        assert ids == sorted(ids), ids
+        assert len(set(ids)) == len(ids)
+        covered = {b for c in chunks for b in c.block_ids}
+        assert covered == {b.block_id for b in blocks}
+
+
+def test_overlap_only_carries_blocks_that_were_new(cfg: AppConfig) -> None:
+    """A block may appear in at most two chunks (its own and the next one's overlap)."""
+    from collections import Counter
+
+    chunks = fixed_tokens(_blocks_with_overlap_across_table(), "doc-x", cfg)
+    occurrences = Counter(b for c in chunks for b in c.block_ids)
+    assert max(occurrences.values()) <= 2
+    # the chunk after the first table carries the page-2 overlap but is identified by its
+    # first *new* block (page 3), so it sorts after the page-3 table chunk
+    after_table = next(c for c in chunks if "blk-doc-x-p0003-0001" in c.block_ids)
+    assert after_table.chunk_id.startswith("chunk-doc-x-p0003-")
+    assert after_table.page_number == 2  # page span still reports the carried overlap
+
+
+def test_chunk_ids_sort_for_documents_with_many_pages(cfg: AppConfig) -> None:
+    blocks = [_block("doc-x", page, 0, f"Page {page} body text.") for page in range(1, 13)]
+    chunks = by_page(blocks, "doc-x", cfg)
+    ids = [c.chunk_id for c in chunks]
+    assert ids == sorted(ids)
+    assert ids[-1].endswith("p0012-0000")
