@@ -90,6 +90,7 @@ def test_run_falls_back_to_rules_and_writes_outputs(tmp_path: Path) -> None:
         "final.json",
         "entities.json",
         "mappings.json",
+        "entity_attributes.json",
         "attributes.json",
         "discarded.json",
         "review_queue.json",

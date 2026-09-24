@@ -17,6 +17,7 @@ DETERMINISTIC_FILES = (
     "discarded.json",
     "entities.json",
     "mappings.json",
+    "entity_attributes.json",
     "final.json",
     "review_queue.json",
 )

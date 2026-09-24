@@ -189,7 +189,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         f"OK  provider={result.metadata.provider}  attributes={n_attr}  entities={n_ent}  "
         f"mappings={n_map}  review_items={n_review}\n"
         f"Outputs written to {result.out_dir}/ (final.json, entities.json, mappings.json, "
-        f"attributes.json, discarded.json, review_queue.json, run.json)"
+        f"entity_attributes.json, attributes.json, discarded.json, review_queue.json, run.json)"
     )
     return EXIT_OK
 

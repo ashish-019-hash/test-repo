@@ -105,6 +105,7 @@ The command prints a one-line summary and writes the output directory:
 | `discarded.json` | candidates below threshold or promoted to entities, with the reason | yes |
 | `entities.json` | canonical entities after duplicate merge and quality validation | yes |
 | `mappings.json` | attribute -> canonical entity mappings with evidence and confidence | yes |
+| `entity_attributes.json` | hand-off view: `[{"entity": <name>, "attributes": [<display name>, ...]}]` for every accepted entity, nothing else | yes |
 | `review_queue.json` | human-review items (attribute review band, possible duplicates, entity review) | yes |
 | `run.json` | run id, timestamps, provider/model, `system_fingerprint`, config hash, stage records, traces | no |
 | `stages/NN_<stage>.json` | full state snapshot after each stage (used by `--resume-from`) | no (timestamps) |

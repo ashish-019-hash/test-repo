@@ -1,9 +1,12 @@
 """Agent 9: FinalOutputAgent.
 
 Assembles the immutable `FinalOutput` payload and writes every deterministic output
-file (`final.json`, `entities.json`, `mappings.json`, `review_queue.json`, and optionally
-`graph.json`/`graph.graphml`). Modifies nothing: every record is copied verbatim from
-upstream state.
+file (`final.json`, `entities.json`, `mappings.json`, `entity_attributes.json`,
+`review_queue.json`, and optionally `graph.json`/`graph.graphml`). Modifies nothing:
+every record is copied verbatim from upstream state.
+
+`entity_attributes.json` is the plain hand-off view: one row per accepted entity with
+the display names of the attributes mapped to it, and nothing else.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ from doc_extractor.schemas.output import FinalOutput, ReviewSection, TraceEdge
 from doc_extractor.schemas.review import DuplicateGroup, ReviewDecision
 from doc_extractor.schemas.state import HumanReviewItem, PipelineState, StageName
 from doc_extractor.storage.canonical_json import dumps
-from doc_extractor.storage.json_store import write_models
+from doc_extractor.storage.json_store import write_json, write_models
 
 
 class FinalOutputAgent(BaseAgent):
@@ -79,6 +82,10 @@ class FinalOutputAgent(BaseAgent):
         write_models(out_dir, "final", final)
         write_models(out_dir, "entities", canonical_entities)
         write_models(out_dir, "mappings", mappings)
+        write_json(
+            out_dir / "entity_attributes.json",
+            self._entity_attributes(attributes, canonical_entities, mappings, decisions),
+        )
         write_models(out_dir, "review_queue", review_queue)
         if self.cfg.output.graph_export:
             ext = "graphml" if self.cfg.output.graph_export == "graphml" else "json"
@@ -88,6 +95,38 @@ class FinalOutputAgent(BaseAgent):
         trace.count("final_entities", len(canonical_entities))
         trace.count("final_mappings", len(mappings))
         return {"final_output": final}
+
+    def _entity_attributes(
+        self,
+        attributes: list[Attribute],
+        canonical_entities: list[CanonicalEntity],
+        mappings: list[Mapping],
+        decisions: list[ReviewDecision],
+    ) -> list[dict[str, Any]]:
+        """`[{"entity": <canonical_name>, "attributes": [<display_name>, ...]}, ...]`.
+
+        Covers every entity the mapping agent may target (ACCEPT, plus REVIEW when
+        `mapping.include_review_entities` is set); an entity with no mapped attribute
+        keeps an empty list. Sorted by entity name, then attribute name; duplicates dropped.
+        """
+        eligible = {"ACCEPT"} | ({"REVIEW"} if self.cfg.mapping.include_review_entities else set())
+        status_by_entity = {d.entity_id: d.validation_status for d in decisions}
+        name_by_attribute = {a.attribute_id: a.display_name for a in attributes}
+
+        rows: dict[str, set[str]] = {
+            cent.canonical_name: set()
+            for cent in canonical_entities
+            if status_by_entity.get(cent.canonical_id) in eligible
+        }
+        name_by_canonical = {c.canonical_id: c.canonical_name for c in canonical_entities}
+        for mapping in mappings:
+            entity_name = name_by_canonical.get(mapping.entity_id)
+            attribute_name = name_by_attribute.get(mapping.attribute_id)
+            if entity_name is None or attribute_name is None:
+                continue
+            rows.setdefault(entity_name, set()).add(attribute_name)
+
+        return [{"entity": name, "attributes": sorted(rows[name])} for name in sorted(rows)]
 
     @staticmethod
     def _build_trace(

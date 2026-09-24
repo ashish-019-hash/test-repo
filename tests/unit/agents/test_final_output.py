@@ -39,7 +39,13 @@ def test_final_output_writes_expected_files(cfg) -> None:
         delta = agent.run(state)
         final = delta["final_output"]
         written = sorted(p.name for p in Path(d).iterdir())
-        assert written == ["entities.json", "final.json", "mappings.json", "review_queue.json"]
+        assert written == [
+            "entities.json",
+            "entity_attributes.json",
+            "final.json",
+            "mappings.json",
+            "review_queue.json",
+        ]
         assert final.document.document_id == state["document"].document_id
         raw = json.loads((Path(d) / "final.json").read_text())
         assert raw["schema_version"] == "1.0"
@@ -120,3 +126,33 @@ def test_final_output_is_stable_under_canonical_json_round_trip(cfg) -> None:
 
         reloaded = FinalOutput.model_validate(json.loads(dumps(final)))
         assert dumps(reloaded) == dumps(final)
+
+
+def test_entity_attributes_file_lists_only_entity_names_and_attribute_names(cfg) -> None:
+    state = _state_through_mapping(cfg)
+    with tempfile.TemporaryDirectory() as d:
+        state["out_dir"] = d
+        FinalOutputAgent(cfg, FakeProvider("rules")).run(state)
+        rows = json.loads((Path(d) / "entity_attributes.json").read_text(encoding="utf-8"))
+
+    # Plain shape: nothing but the entity name and its attribute names.
+    assert rows, "fixture state should map at least one attribute"
+    assert all(set(row) == {"entity", "attributes"} for row in rows)
+    assert [row["entity"] for row in rows] == sorted(row["entity"] for row in rows)
+    assert all(row["attributes"] == sorted(set(row["attributes"])) for row in rows)
+
+    # Every accepted entity is present; rejected ones are not.
+    statuses = {dec.entity_id: dec.validation_status for dec in state["review_decisions"]}
+    names = {c.canonical_id: c.canonical_name for c in state["canonical_entities"]}
+    accepted = {names[eid] for eid, s in statuses.items() if s == "ACCEPT" and eid in names}
+    rejected = {names[eid] for eid, s in statuses.items() if s == "REJECT" and eid in names}
+    listed = {row["entity"] for row in rows}
+    assert accepted <= listed
+    assert not (rejected & listed)
+
+    # Each mapping shows up as the attribute's display name under its entity.
+    display = {a.attribute_id: a.display_name for a in state["attributes"]}
+    by_entity = {row["entity"]: row["attributes"] for row in rows}
+    assert state["mappings"], "fixture state should produce mappings"
+    for m in state["mappings"]:
+        assert display[m.attribute_id] in by_entity[names[m.entity_id]]
