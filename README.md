@@ -195,7 +195,8 @@ To restart one document from scratch, delete its output directory or run without
 | Symptom | Cause / fix |
 | --- | --- |
 | `llm.fallback ... missing=[AZURE_OPENAI_...]` warning and `provider=rules` | `.env` is incomplete. Fill all five variables, or accept the offline mode. `--provider azure` makes this a hard error (exit 3). |
-| `BadRequestError ... response_format / json_schema` | Your API version does not support structured outputs. The provider retries automatically with `json_object`; set `AZURE_OPENAI_API_VERSION=2024-10-21` or newer to use `json_schema`. |
+| `BadRequestError ... response_format / json_schema` | Your API version does not support structured outputs. The provider logs `llm.schema_fallback` and retries with `json_object` (the schema is also in the prompt, so responses still validate); set `AZURE_OPENAI_API_VERSION=2024-10-21` or newer to use `json_schema`. |
+| `Invalid schema for response_format ... 'required' is required to be supplied` | Azure strict mode needs every property in `required`. `doc_extractor.llm.schema.strict_json_schema` rewrites the Pydantic schema for this; if you add a response model field, keep it a plain or `T \| None` annotation and the rewrite handles it. |
 | `DeploymentNotFound` / 404 | `AZURE_OPENAI_DEPLOYMENT` must be the deployment name in Azure AI Foundry, not the model name. |
 | `document.needs_ocr: true`, zero attributes (exit 0) | The PDF is scanned; the run completes with empty results. Install Tesseract, `pip install -e ".[ocr]"`, set `ingest.ocr_enabled: true`. |
 | Table rows extracted as prose | pdfplumber found no ruling lines. Try the DOCX/Markdown source, or lower `scoring.routing.review` to keep key-value candidates for review. |

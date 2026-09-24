@@ -17,13 +17,16 @@ from pydantic import BaseModel
 from doc_extractor.config.models import AppConfig
 from doc_extractor.exceptions import ConfigError, LLMPermanentError, LLMTransientError
 from doc_extractor.llm.base import LLMCallResult, LLMTask
+from doc_extractor.llm.schema import strict_json_schema
 from doc_extractor.llm.settings import AzureSettings
 from doc_extractor.observability.logging import get_logger
 
 _SYSTEM_PROMPT = (
     "You are a deterministic JSON-generating assistant. Respond with a single JSON "
     "object matching the requested schema exactly. Never include markdown fences, "
-    "commentary, or text outside the JSON object."
+    "commentary, or text outside the JSON object.\n\n"
+    "Every property listed in the schema is required on every object; use null only "
+    "where the schema allows it. Response JSON schema:\n{schema_json}"
 )
 
 _TRANSIENT_EXCEPTIONS: tuple[type[Exception], ...] = (
@@ -54,6 +57,7 @@ class AzureOpenAIProvider:
         self.settings = settings
         self.model_label = settings.model
         self._use_json_object = False
+        self._schemas: dict[str, dict[str, Any]] = {}
         if client is not None:
             self.client = client
         else:
@@ -69,7 +73,12 @@ class AzureOpenAIProvider:
             )
 
     def call(self, task: LLMTask, payload: dict[str, Any]) -> LLMCallResult:
-        system = {"role": "system", "content": _SYSTEM_PROMPT}
+        # The schema goes into the prompt as well as `response_format`, so the model
+        # still knows the required fields when the API only supports `json_object`.
+        system = {
+            "role": "system",
+            "content": _SYSTEM_PROMPT.format(schema_json=json.dumps(self._schema(task), sort_keys=True)),
+        }
         user = {
             "role": "user",
             "content": task.prompt_template().format(
@@ -107,16 +116,18 @@ class AzureOpenAIProvider:
 
     # -- internals -----------------------------------------------------------------
 
+    def _schema(self, task: LLMTask) -> dict[str, Any]:
+        schema = self._schemas.get(task.name)
+        if schema is None:
+            schema = self._schemas[task.name] = strict_json_schema(task.response_model)
+        return schema
+
     def _response_format(self, task: LLMTask) -> dict[str, Any]:
         if self._use_json_object:
             return {"type": "json_object"}
         return {
             "type": "json_schema",
-            "json_schema": {
-                "name": task.name,
-                "schema": task.response_model.model_json_schema(),
-                "strict": True,
-            },
+            "json_schema": {"name": task.name, "schema": self._schema(task), "strict": True},
         }
 
     def _invoke(

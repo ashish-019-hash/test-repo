@@ -159,11 +159,33 @@ def test_bad_request_mentioning_response_format_falls_back_to_json_object(cfg: A
     assert len(client.chat.completions.calls) == 2
     assert client.chat.completions.calls[0]["response_format"]["type"] == "json_schema"
     assert client.chat.completions.calls[1]["response_format"] == {"type": "json_object"}
+    # In json_object mode the API no longer enforces the schema, so the prompt must carry it.
+    system_prompt = client.chat.completions.calls[1]["messages"][0]["content"]
+    assert '"source_text_quote"' in system_prompt
+    assert '"required": ["raw_name", "source_text_quote", "sentence"]' in system_prompt
 
     # The fallback is remembered for subsequent calls on the same provider instance.
     client.chat.completions.script.append(_completion('{"candidates": []}'))
     provider.call(ATTRIBUTE_CANDIDATES_TASK, {"source_text": "world"})
     assert client.chat.completions.calls[2]["response_format"] == {"type": "json_object"}
+
+
+def test_json_schema_request_is_strict_with_every_property_required(cfg: Any) -> None:
+    client = _FakeClient.with_script([_completion('{"candidates": []}')])
+    provider = AzureOpenAIProvider(cfg, _settings(), client=client)
+
+    provider.call(ATTRIBUTE_CANDIDATES_TASK, {"source_text": "hello"})
+
+    json_schema = client.chat.completions.calls[0]["response_format"]["json_schema"]
+    assert json_schema["strict"] is True
+    schema = json_schema["schema"]
+    # Pydantic omits `candidates` (it has a default) from `required`; Azure strict mode
+    # rejects that with "'required' ... must include every key in properties".
+    assert schema["required"] == ["candidates"]
+    assert schema["additionalProperties"] is False
+    proposal = schema["$defs"]["CandidateProposal"]
+    assert sorted(proposal["required"]) == ["raw_name", "sentence", "source_text_quote"]
+    assert proposal["additionalProperties"] is False
 
 
 def test_bad_request_unrelated_to_schema_raises_permanent(cfg: Any) -> None:
