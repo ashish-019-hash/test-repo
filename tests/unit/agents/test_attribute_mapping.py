@@ -83,8 +83,11 @@ def test_mapping_ids_are_unique(cfg) -> None:
 
 
 def test_review_entities_excluded_unless_configured(cfg) -> None:
-    """With `include_review_entities=False` (default), attributes bound to a REVIEW-status
-    canonical entity must be left unmapped."""
+    """With `include_review_entities=False`, attributes bound to a REVIEW-status canonical
+    entity must be left unmapped."""
+    cfg = cfg.model_copy(
+        update={"mapping": cfg.mapping.model_copy(update={"include_review_entities": False})}
+    )
     state = _state_through_reviewer(cfg)
     review_ids = {d.entity_id for d in state["review_decisions"] if d.validation_status == "REVIEW"}
     if not review_ids:

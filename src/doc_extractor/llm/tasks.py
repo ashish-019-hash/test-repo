@@ -45,10 +45,15 @@ class EntityQualityResponse(_Model):
     reason: str
 
 
-class BindingJudgementResponse(_Model):
+class BindingJudgement(_Model):
+    attribute_id: str
     entity_name: str | None = None
     evidence_quote: str | None = None
     reason: str
+
+
+class BindingJudgementResponse(_Model):
+    bindings: list[BindingJudgement] = []
 
 
 ATTRIBUTE_CANDIDATES_TASK = LLMTask(
@@ -76,7 +81,7 @@ BINDING_JUDGEMENT_TASK = LLMTask(
     name="binding_judgement",
     prompt_file="binding_judgement.md",
     response_model=BindingJudgementResponse,
-    max_output_tokens=500,
+    max_output_tokens=2000,
 )
 
 TASKS: dict[str, LLMTask] = {
@@ -92,6 +97,7 @@ __all__ = [
     "EntityProposal",
     "EntityProposalsResponse",
     "EntityQualityResponse",
+    "BindingJudgement",
     "BindingJudgementResponse",
     "ATTRIBUTE_CANDIDATES_TASK",
     "ENTITY_PROPOSALS_TASK",

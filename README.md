@@ -155,7 +155,7 @@ Key settings:
 | `entity_generation` | `min_mentions`, `min_confidence` | 2, 0.5 | entity candidate filters |
 | `reviewer.duplicate` | `duplicate_threshold` / `possible_threshold` | 0.90 / 0.70 | DUPLICATE / POSSIBLE_DUPLICATE / DISTINCT |
 | `reviewer.quality` | `accept` / `review` | 0.75 / 0.50 | ACCEPT / REVIEW / REJECT |
-| `mapping` | `min_confidence` | 0.5 | minimum mapping confidence |
+| `mapping` | `min_confidence`, `include_review_entities`, `llm_binding_confidence` | 0.5, true, 0.7 | minimum mapping confidence; whether REVIEW entities may receive attributes; confidence given to a mapping made by the Azure `binding_judgement` pass |
 | `chunking` | `strategy`, `max_tokens`, `overlap_tokens` | heading_aware, 800, 100 | `by_page`, `fixed_tokens` or `heading_aware` |
 | `lexicons.*` | YAML lexicon files | packaged telecom set | property nouns, gazetteer, known entities, SID ABEs, aliases, furniture, lifecycle verbs |
 
@@ -231,7 +231,7 @@ To restart one document from scratch, delete its output directory or run without
 | 5 | EntityGenerationAgent | `attributes`, `chunks` | `entities` | grounded entity candidates from bindings, promotions and lexicons |
 | 6 | EntityNormalizationAgent | `entities` | `normalized_entities` | textual normalisation with step log; never merges |
 | 7 | EntityReviewerAgent | entities, attributes, chunks | `duplicate_groups`, `canonical_entities`, `review_decisions` | DUPLICATE / POSSIBLE_DUPLICATE / DISTINCT and eight-criterion quality validation |
-| 8 | AttributeMappingAgent | canonical entities, attributes | `mappings`, `unmapped_attribute_ids` | evidence-backed attribute -> canonical entity mappings |
+| 8 | AttributeMappingAgent | canonical entities, attributes | `mappings`, `unmapped_attribute_ids` | evidence-backed attribute -> canonical entity mappings; in Azure mode, attributes the rules leave unmapped go to the `binding_judgement` task (one call per chunk, answers restricted to the eligible entity names) |
 | 9 | FinalOutputAgent | everything | `final_output` + files | final JSON, review section, trace edges, optional graph |
 
 Every agent extends `BaseAgent`: `validate_input` -> `execute` -> `validate_output`,

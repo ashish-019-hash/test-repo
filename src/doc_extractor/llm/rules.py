@@ -18,6 +18,7 @@ from doc_extractor.config.models import AppConfig
 from doc_extractor.llm.base import LLMCallResult, LLMTask
 from doc_extractor.llm.tasks import (
     AttributeCandidatesResponse,
+    BindingJudgement,
     BindingJudgementResponse,
     CandidateProposal,
     EntityProposal,
@@ -146,23 +147,35 @@ class RuleBasedProvider:
     # -- binding_judgement ----------------------------------------------------------
 
     def _binding_judgement(self, payload: dict[str, Any]) -> BindingJudgementResponse:
-        sentence = payload.get("sentence") or ""
         candidate_entities = payload.get("candidate_entities") or []
-        for name in candidate_entities:
-            pattern = re.compile(
-                rf"(?:each|the|an?)\s+({re.escape(str(name))})\b.*?\b{_BINDING_VERBS}\b",
-                re.IGNORECASE,
+        patterns = [
+            (
+                str(name),
+                re.compile(
+                    rf"(?:each|the|an?)\s+({re.escape(str(name))})\b.*?\b{_BINDING_VERBS}\b",
+                    re.IGNORECASE,
+                ),
             )
-            match = pattern.search(sentence)
-            if match is not None:
-                return BindingJudgementResponse(
-                    entity_name=name,
-                    evidence_quote=sentence,
-                    reason=f"rules provider: matched binding pattern for {name!r}",
-                )
-        return BindingJudgementResponse(
-            entity_name=None, evidence_quote=None, reason="rules provider: no match"
-        )
+            for name in candidate_entities
+        ]
+        bindings: list[BindingJudgement] = []
+        for attr in payload.get("attributes") or []:
+            sentence = str(attr.get("sentence") or "")
+            judgement = BindingJudgement(
+                attribute_id=str(attr.get("attribute_id", "")),
+                reason="rules provider: no match",
+            )
+            for name, pattern in patterns:
+                if pattern.search(sentence) is not None:
+                    judgement = BindingJudgement(
+                        attribute_id=judgement.attribute_id,
+                        entity_name=name,
+                        evidence_quote=sentence,
+                        reason=f"rules provider: matched binding pattern for {name!r}",
+                    )
+                    break
+            bindings.append(judgement)
+        return BindingJudgementResponse(bindings=bindings)
 
 
 __all__ = ["RuleBasedProvider"]

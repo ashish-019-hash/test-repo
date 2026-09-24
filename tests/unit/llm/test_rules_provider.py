@@ -129,10 +129,17 @@ def test_binding_judgement_matches_pattern(cfg: AppConfig) -> None:
     sentence = "Each UNI SHALL have a physical medium and a MAC address."
     result = provider.call(
         BINDING_JUDGEMENT_TASK,
-        {"sentence": sentence, "candidate_entities": ["UNI", "Subscriber"]},
+        {
+            "chunk_id": "c1",
+            "source_text": sentence,
+            "attributes": [{"attribute_id": "attr-1", "attribute_name": "MAC Address", "sentence": sentence}],
+            "candidate_entities": ["UNI", "Subscriber"],
+        },
     )
-    assert result.response.entity_name == "UNI"
-    assert result.response.evidence_quote == sentence
+    [binding] = result.response.bindings
+    assert binding.attribute_id == "attr-1"
+    assert binding.entity_name == "UNI"
+    assert binding.evidence_quote == sentence
 
 
 def test_binding_judgement_no_match_returns_null(cfg: AppConfig) -> None:
@@ -140,10 +147,18 @@ def test_binding_judgement_no_match_returns_null(cfg: AppConfig) -> None:
     sentence = "The document describes general concepts without any binding verb."
     result = provider.call(
         BINDING_JUDGEMENT_TASK,
-        {"sentence": sentence, "candidate_entities": ["UNI", "Subscriber"]},
+        {
+            "chunk_id": "c1",
+            "source_text": sentence,
+            "attributes": [
+                {"attribute_id": "attr-1", "attribute_name": "Concept", "sentence": sentence},
+                {"attribute_id": "attr-2", "attribute_name": "Other", "sentence": ""},
+            ],
+            "candidate_entities": ["UNI", "Subscriber"],
+        },
     )
-    assert result.response.entity_name is None
-    assert result.response.evidence_quote is None
+    assert [b.attribute_id for b in result.response.bindings] == ["attr-1", "attr-2"]
+    assert all(b.entity_name is None and b.evidence_quote is None for b in result.response.bindings)
 
 
 def test_provider_name() -> None:

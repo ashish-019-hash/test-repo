@@ -219,7 +219,8 @@ class ReviewerConfig(_Cfg):
 
 class MappingConfig(_Cfg):
     min_confidence: float = 0.5
-    include_review_entities: bool = False
+    include_review_entities: bool = True
+    llm_binding_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
 
 
 class LexiconsConfig(_Cfg):

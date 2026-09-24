@@ -99,7 +99,8 @@ reviewer:
 
 mapping:
   min_confidence: 0.5
-  include_review_entities: false
+  include_review_entities: true
+  llm_binding_confidence: 0.7   # confidence of a mapping made by the LLM binding pass (Azure only)
 
 lexicons:
   property_nouns: lexicons/property_nouns.yaml

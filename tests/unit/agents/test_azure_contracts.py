@@ -196,3 +196,108 @@ def test_attribute_extraction_grounds_azure_sentence_and_quote(cfg, telecom_spec
     trace = delta["traces"][-1]
     assert trace.data.get("llm_candidate_quote_dropped") == 1
     assert trace.data.get("llm_candidate_sentence_dropped") == 1
+
+
+# --------------------------------------------------------------------------------------
+# Agent 8: binding judgement for attributes the rules pass left unmapped
+# --------------------------------------------------------------------------------------
+def _state_through_reviewer(cfg) -> dict[str, Any]:
+    provider = ScriptedProvider({}, name="rules")
+    state = base_state(StageName.attribute_storage)
+    for stage, agent_cls in [
+        (StageName.entity_generation, EntityGenerationAgent),
+        (StageName.entity_normalization, EntityNormalizationAgent),
+        (StageName.entity_reviewer, EntityReviewerAgent),
+    ]:
+        state.update(agent_cls(cfg, provider).run(state))
+        state["stages"][str(stage)] = StageRecord(stage=stage, attempts=1, status="succeeded")
+    return state
+
+
+def test_attribute_mapping_binds_leftover_attributes_via_azure(cfg) -> None:
+    from doc_extractor.agents.attribute_mapping import AttributeMappingAgent
+
+    state = _state_through_reviewer(cfg)
+    # Only the dangling "Provisioning Time" attribute survives the rules pass unmapped.
+    response = tasks.BindingJudgementResponse(
+        bindings=[
+            tasks.BindingJudgement(
+                attribute_id="attr-provisioningtime",
+                entity_name="service",  # case-insensitive match on the canonical name
+                evidence_quote="Provisioning of the service",
+                reason="the sentence describes provisioning of the service",
+            ),
+            # unknown attribute id -> ignored
+            tasks.BindingJudgement(attribute_id="attr-hallucinated", entity_name="Service", reason="made up"),
+        ]
+    )
+    provider = _azure({"binding_judgement": [response]})
+    delta = AttributeMappingAgent(cfg, provider).run(state)
+
+    [(task_name, payload)] = provider.call_log
+    assert task_name == "binding_judgement"
+    assert payload["chunk_id"] == CHUNK_SUBSCRIBER.chunk_id
+    assert [a["attribute_id"] for a in payload["attributes"]] == ["attr-provisioningtime"]
+    assert payload["candidate_entities"] == ["EVC", "Service", "Service Provider", "Subscriber", "UNI"]
+
+    mapping = next(m for m in delta["mappings"] if m.attribute_id == "attr-provisioningtime")
+    service = next(c for c in state["canonical_entities"] if c.canonical_name == "Service")
+    assert mapping.entity_id == service.canonical_id
+    assert mapping.confidence == pytest.approx(cfg.mapping.llm_binding_confidence)
+    assert [e.text for e in mapping.supporting_evidence] == ["Provisioning of the service"]
+    assert delta["unmapped_attribute_ids"] == []
+
+
+@pytest.mark.parametrize(
+    ("judgement", "expect_mapped", "expect_evidence"),
+    [
+        # entity not in the candidate list -> dropped
+        (
+            tasks.BindingJudgement(
+                attribute_id="attr-provisioningtime", entity_name="Bank", reason="not listed"
+            ),
+            False,
+            None,
+        ),
+        # null entity -> stays unmapped
+        (tasks.BindingJudgement(attribute_id="attr-provisioningtime", reason="no owner"), False, None),
+        # quote not in the chunk -> mapping kept at reduced confidence, without evidence
+        (
+            tasks.BindingJudgement(
+                attribute_id="attr-provisioningtime",
+                entity_name="Service",
+                evidence_quote="text that is not in the chunk",
+                reason="ungrounded quote",
+            ),
+            True,
+            [],
+        ),
+    ],
+)
+def test_attribute_mapping_grounds_azure_binding_judgements(
+    cfg, judgement, expect_mapped, expect_evidence
+) -> None:
+    from doc_extractor.agents.attribute_mapping import AttributeMappingAgent
+
+    state = _state_through_reviewer(cfg)
+    provider = _azure({"binding_judgement": [tasks.BindingJudgementResponse(bindings=[judgement])]})
+    delta = AttributeMappingAgent(cfg, provider).run(state)
+
+    mapped = {m.attribute_id: m for m in delta["mappings"]}
+    assert ("attr-provisioningtime" in mapped) is expect_mapped
+    if expect_mapped:
+        mapping = mapped["attr-provisioningtime"]
+        assert [e.text for e in mapping.supporting_evidence] == expect_evidence
+        assert mapping.confidence == pytest.approx(0.8 * cfg.mapping.llm_binding_confidence)
+    else:
+        assert "attr-provisioningtime" in delta["unmapped_attribute_ids"]
+
+
+def test_attribute_mapping_makes_no_azure_call_when_nothing_is_pending(cfg) -> None:
+    from doc_extractor.agents.attribute_mapping import AttributeMappingAgent
+
+    state = _state_through_reviewer(cfg)
+    state["attributes"] = [a for a in state["attributes"] if a.attribute_id != "attr-provisioningtime"]
+    provider = _azure({})
+    AttributeMappingAgent(cfg, provider).run(state)
+    assert provider.call_log == []

@@ -1,14 +1,19 @@
 """Agent 8: AttributeMappingAgent.
 
-No LLM. Every attribute with a resolved binding entity is mapped to at most one
+Pass 1 (rules): every attribute with a resolved binding entity is mapped to at most one
 canonical entity, only when that canonical entity is eligible (ACCEPT, or REVIEW when
 `cfg.mapping.include_review_entities` is set) and the confidence/co-occurrence gate passes.
+
+Pass 2 (Azure only): attributes still unmapped are sent to the `binding_judgement` task,
+one call per source chunk, with the eligible entity names as the only allowed answers.
+A judgement is kept only if it names a listed entity and its quote (if any) is a verbatim
+substring of the chunk.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 from doc_extractor.agents.base import BaseAgent
 from doc_extractor.exceptions import StageValidationError
@@ -134,11 +139,110 @@ class AttributeMappingAgent(BaseAgent):
             mappings.append(mapping)
             mapped_attribute_ids.add(attr.attribute_id)
 
+        if self.provider.name == "azure":
+            eligible_cents = [
+                c
+                for c in canonical_entities
+                if (d := decisions_by_id.get(c.canonical_id)) is not None
+                and d.validation_status in eligible_statuses
+            ]
+            pending = [a for a in attributes if a.attribute_id not in mapped_attribute_ids]
+            for mapping in self._llm_mappings(pending, eligible_cents, chunks_by_id, trace):
+                mappings.append(mapping)
+                mapped_attribute_ids.add(mapping.attribute_id)
+
         unmapped_ids = sorted({a.attribute_id for a in attributes} - mapped_attribute_ids)
         mappings.sort(key=lambda m: m.mapping_id)
         trace.count("mappings_created", len(mappings))
         trace.count("attributes_unmapped", len(unmapped_ids))
         return {"mappings": mappings, "unmapped_attribute_ids": unmapped_ids}
+
+    def _llm_mappings(
+        self,
+        pending: list[Attribute],
+        eligible_cents: list[CanonicalEntity],
+        chunks_by_id: dict[str, Chunk],
+        trace: TraceCollector,
+    ) -> list[Mapping]:
+        """Azure mode only: ask the LLM which eligible entity owns each still-unmapped attribute."""
+        from doc_extractor.llm import tasks as llm_tasks  # lazy: only imported in azure mode
+
+        if not pending or not eligible_cents:
+            return []
+        cent_by_name: dict[str, CanonicalEntity] = {}
+        for cent in sorted(eligible_cents, key=lambda c: c.canonical_id):
+            cent_by_name.setdefault(cent.canonical_name.casefold(), cent)
+            cent_by_name.setdefault(cent.normalized_name.casefold(), cent)
+        candidate_names = sorted({c.canonical_name for c in eligible_cents})
+
+        by_chunk: dict[str, list[Attribute]] = {}
+        for attr in sorted(pending, key=lambda a: a.attribute_id):
+            by_chunk.setdefault(attr.source_chunk, []).append(attr)
+
+        out: list[Mapping] = []
+        for chunk_id in sorted(by_chunk):
+            chunk = chunks_by_id.get(chunk_id)
+            if chunk is None:
+                continue
+            attrs = by_chunk[chunk_id]
+            attrs_by_id = {a.attribute_id: a for a in attrs}
+            result = self.provider.call(
+                llm_tasks.BINDING_JUDGEMENT_TASK,
+                {
+                    "chunk_id": chunk_id,
+                    "source_text": chunk.source_text,
+                    "attributes": [
+                        {
+                            "attribute_id": a.attribute_id,
+                            "attribute_name": a.display_name,
+                            "sentence": a.source_text,
+                        }
+                        for a in attrs
+                    ],
+                    "candidate_entities": candidate_names,
+                },
+            )
+            response = cast(llm_tasks.BindingJudgementResponse, result.response)
+            seen: set[str] = set()
+            for judgement in response.bindings:
+                target = attrs_by_id.get(judgement.attribute_id)
+                if target is None or target.attribute_id in seen:
+                    trace.count("llm_binding_unknown_attribute")
+                    continue
+                seen.add(target.attribute_id)
+                if not judgement.entity_name:
+                    trace.count("llm_binding_no_entity")
+                    continue
+                owner = cent_by_name.get(judgement.entity_name.casefold())
+                if owner is None:
+                    trace.count("llm_binding_unknown_entity")
+                    continue
+                evidence: list[Evidence] = []
+                quote = judgement.evidence_quote
+                if quote:
+                    if quote in chunk.source_text:
+                        evidence.append(Evidence(chunk_id=chunk_id, text=quote))
+                    else:
+                        trace.count("llm_binding_quote_dropped")
+                        quote = None
+                confidence = self.cfg.mapping.llm_binding_confidence * (1.0 if quote else 0.8)
+                if confidence < self.cfg.mapping.min_confidence:
+                    trace.count("mapping_below_min_confidence")
+                    continue
+                rel = _relationship_type(target)
+                out.append(
+                    Mapping(
+                        mapping_id=ids.mapping_id(target.attribute_id, owner.canonical_id, rel),
+                        attribute_id=target.attribute_id,
+                        entity_id=owner.canonical_id,
+                        relationship_type=rel,
+                        source_chunk=chunk_id,
+                        supporting_evidence=evidence,
+                        confidence=round(confidence, 6),
+                    )
+                )
+                trace.count("mappings_from_llm")
+        return out
 
     def _resolve_original_entity(
         self, bound_name: str, entities_by_name: dict[str, list[Entity]], lexicons: Any
